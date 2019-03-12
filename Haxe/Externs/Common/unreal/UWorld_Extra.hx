@@ -5,8 +5,10 @@ extern class UWorld_Extra {
   public var RealTimeSeconds : Float32;
 
   public var Scene : PPtr<FSceneInterface>;
-
+  public var WorldType : EWorldType;
   public var URL : FURL;
+  
+  public function Exec(InWorld:UWorld,Cmd:Const<TCharStar>,Ar:PRef<FOutputDevice>):Bool;
 
   @:thisConst
   public function GetNetMode() : ENetMode;
@@ -178,9 +180,6 @@ extern class UWorld_Extra {
   @:thisConst
   public function SweepSingleByChannel(OutHit:PRef<FHitResult>, Start:Const<PRef<FVector>>, End:Const<PRef<FVector>>, Rot:Const<PRef<FQuat>>, TraceChannel:ECollisionChannel, Shape:Const<PRef<FCollisionShape>>, Params:Const<PRef<FCollisionQueryParams>>, ResponseParams:Const<PRef<FCollisionResponseParams>>) : Bool;
 
-  @:thisConst
-  public function SweepMultiByChannel(OutHits:PRef<TArray<FHitResult>>, Start:Const<PRef<FVector>>, End:Const<PRef<FVector>>, Rot:Const<PRef<FQuat>>, TraceChannel:ECollisionChannel, Shape:Const<PRef<FCollisionShape>>, Params:Const<PRef<FCollisionQueryParams>>, ResponseParams:Const<PRef<FCollisionResponseParams>>) : Bool;
-
   @:noTemplate
   @:uname("SpawnActorDeferred<AActor>")
   @:typeName public function SpawnActorDeferred<T : AActor>(
@@ -256,8 +255,4 @@ extern class UWorld_Extra {
 
   /** Is level streaming currently frozen? */
   public var bIsLevelStreamingFrozen:Bool;
-
-  @:thisConst
-  public function GetStreamingLevels() : Const<PRef<TArray<ULevelStreaming>>>;
-
 }

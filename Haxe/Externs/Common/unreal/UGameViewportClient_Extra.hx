@@ -3,21 +3,63 @@ package unreal;
 @:glueCppIncludes("Engine/GameViewportClient.h")
 @:uextern extern class UGameViewportClient_Extra extends unreal.UScriptViewportClient {
 
-  public var Viewport : PPtr<FViewport>;
+	/**
+		Returns access to this viewport's Slate window
+	 *
+	**/	
+	public var Viewport : PPtr<FViewport>;
 
-  public var EngineShowFlags : FEngineShowFlags;
+	/**
+		Set to disable world rendering
+	 *
+	**/	
+	public var bDisableWorldRendering : UInt32;	
+	
+	/**
+		Array of the screen data needed for all the different splitscreen configurations
+	 *
+	**/	
+	public var SplitscreenInfo : TArray<FSplitscreenData>;
 
-  public function PostRender(Canvas:UCanvas) : Void;
+	public var EngineShowFlags : FEngineShowFlags;
 
-  @:thisConst
-  public function GetViewportSize( ViewportSize:FVector2D ) : Void;
+	public function PostRender(Canvas:UCanvas) : Void;
 
-  /**
-    Controls suppression of the blue transition text messages
-   **/
-  public function SetSuppressTransitionMessage( suppress:Bool ) : Void;
+	/**
+		Retrieve the size of the main viewport
+	 *
+	**/	
+	@:thisConst
+	public function GetViewportSize( ViewportSize:FVector2D ) : Void;
 
-  public function IsFocused(Viewport:PPtr<FViewport>) : Bool;
-  public function ReceivedFocus(Viewport:PPtr<FViewport>) : Void;
-  public function LostFocus(Viewport:PPtr<FViewport>) : Void;
+	/**
+	Controls suppression of the blue transition text messages
+	**/
+	public function SetSuppressTransitionMessage( suppress:Bool ) : Void;
+
+	/**
+		Returns access to this viewport's Slate window
+	 *
+	**/	
+	public function GetWindow() : TSharedPtr<SWindow>;
+	
+	/**
+		Gets whether or not the viewport captures the Mouse on launch of the application Technically this controls capture on the first window activate, so in situations where the application is launched but isn't activated the effect is delayed until activation.
+	 *
+	**/	
+	public function CaptureMouseOnLaunch() : Void;	
+	
+	/**
+		Gets whether or not the cursor is hidden when the viewport captures the mouse
+	 *
+	**/	
+	public function HideCursorDuringCapture() : Void;	
+	
+	/**
+		Gets whether or not the cursor should always be locked to the viewport
+	 *
+	**/	
+	public function ShouldAlwaysLockMouse() : Void;
+  
+  
 }

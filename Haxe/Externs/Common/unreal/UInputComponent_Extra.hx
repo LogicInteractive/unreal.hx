@@ -109,6 +109,7 @@ extern class UInputComponent_Extra {
    * Binds a delegate function to an Action defined in the project settings.
    * Returned reference is only guaranteed to be valid until another action is bound. (MethodPointer version)
    */
+  //public function BindAction(actionName:Const<FName>, keyEvent:EInputEvent, object:UObject, func:MethodPointer<UObject,Void->Void>) : PRef<FInputActionBinding>;
   @:uname("BindAction") public function BindAction(actionName:Const<FName>, keyEvent:EInputEvent, object:UObject, func:MethodPointer<UObject,Void->Void>) : PRef<FInputActionBinding>;
 
   /**
@@ -148,6 +149,7 @@ extern class UInputComponent_Extra {
    * Binds a delegate function an Axis defined in the project settings.
    * Returned reference is only guaranteed to be valid until another axis is bound. (MethodPointer version)
    */
+  //public function BindAxis(axisName:Const<FName>, object:UObject, func:MethodPointer<UObject,Float32->Void>) : PRef<FInputAxisBinding>;
   @:uname("BindAxis") public function BindAxisStatic(axisName:Const<FName>, object:UObject, func:MethodPointer<UObject,Float32->Void>) : PRef<FInputAxisBinding>;
 
   @:uname("BindAxis") public function BindAxisCreate(axisName:Const<FName>) : PRef<FInputAxisBinding>;
@@ -215,10 +217,13 @@ extern class UInputComponent_Extra {
   })
 	public function BindVectorAxis(axisKey:FKey, object:Null<UObject>, func:FVector->Void) : FInputVectorAxisBinding;
 
+
+
 	/**
 	 * Binds a key event to a delegate function.
 	 * Returned reference is only guaranteed to be valid until another input key is bound.
 	 */
+  //public function BindKey(actionName:Const<FKey>, keyEvent:EInputEvent, object:UObject, func:MethodPointer<UObject,Void->Void>) : PRef<FInputKeyBinding>;
   @:uname("BindKey") public function BindKeyStatic(chord:unreal.slate.FInputChord, keyEvent:EInputEvent, object:UObject, func:MethodPointer<UObject,Void->Void>) : PRef<FInputKeyBinding>;
 
 	/**

@@ -19,4 +19,6 @@ package unreal.umg;
 
 	/** Function called after the underlying SWidget is constructed. */
 	private function OnWidgetRebuilt() : Void;
+	
+  private function RebuildWidget():TSharedRef<SWidget>;
 }

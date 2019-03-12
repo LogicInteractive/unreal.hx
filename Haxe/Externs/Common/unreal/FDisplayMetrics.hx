@@ -10,5 +10,5 @@ package unreal;
   public var PrimaryDisplayWidth:Int32;
   public var PrimaryDisplayHeight:Int32;
 
-  public static function GetDisplayMetrics(OutDisplayMetrics:PRef<FDisplayMetrics>) : Void;
+  //public static function GetDisplayMetrics(OutDisplayMetrics:PRef<FDisplayMetrics>) : Void;
 }

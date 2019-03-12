@@ -1,6 +1,11 @@
 package unreal;
 
 extern class UEngine_Extra {
+	public static function GetLargeFont()		: UFont;
+	public static function GetMediumFont()		: UFont;
+	public static function GetSmallFont()		: UFont;
+	public static function GetSubtitleFont()	: UFont;
+	public static function GetTinyFont()		: UFont;
 
 	public var bForceDisableFrameRateSmoothing:Bool;
 	/**
@@ -79,6 +84,5 @@ extern class UEngine_Extra {
 	/** Clear any existing debug messages */
 	public function ClearOnScreenDebugMessages():Void;
 
-	/** Updates the timer between garbage collection such that at the next opportunity garbage collection will be run. */
-	public function ForceGarbageCollection(bFullPurge:Bool=false) : Void;
 }
+

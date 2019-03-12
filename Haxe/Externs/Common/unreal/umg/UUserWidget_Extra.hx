@@ -24,6 +24,8 @@ extern class UUserWidget_Extra {
 	private function NativePreConstruct():Void;
 	private function NativeConstruct():Void;
 	private function NativeOnMouseButtonDown(MyGeometry : Const<PRef<FGeometry>>, InMouseEvent : Const<PRef<FPointerEvent>>) : FReply;
+	private function NativeOnMouseButtonUp(MyGeometry : Const<PRef<FGeometry>>, InMouseEvent : Const<PRef<FPointerEvent>>) : FReply;
+	private function NativeOnMouseMove(MyGeometry : Const<PRef<FGeometry>>, InMouseEvent : Const<PRef<FPointerEvent>>) : FReply;
 	private function NativeOnMouseEnter(MyGeometry : Const<PRef<FGeometry>>, MouseEvent : Const<PRef<FPointerEvent>>) : Void;
 	private function NativeOnMouseLeave(InMouseEvent : Const<PRef<FPointerEvent>>) : Void;
 	private function NativeOnKeyDown (InGeometry : Const<PRef<FGeometry>>, InKeyEvent : Const<PRef<FKeyEvent>>) : FReply;
@@ -35,14 +37,18 @@ extern class UUserWidget_Extra {
 	private function NativeOnDrop(InGeometry : Const<PRef<FGeometry>>, InDragDropEvent : Const<PRef<FDragDropEvent>>, InOperation : UDragDropOperation) : Bool;
 	private function NativeOnFocusReceived (InGeometry : Const<PRef<FGeometry>>, InFocusEvent : Const<PRef<FFocusEvent>>) : FReply;
  	private function NativeOnFocusLost(InFocusEvent : Const<PRef<FFocusEvent>>) : Void;
-
+	
+ 	private function NativeDestruct() : Void;
+	
 	public function OnAnimationFinished_Implementation (Animation:Const<UWidgetAnimation>):Void;
 	public function OnAnimationStarted_Implementation (Animation:Const<UWidgetAnimation>):Void;
 
 	private function OnLevelRemovedFromWorld(InLevel:ULevel, InWorld:UWorld) : Void;
+	private function GetWidgetTreeOwningClass():UWidgetBlueprintGeneratedClass;
 
 	@:ufunction(BlueprintImplementableEvent) public function OnDragDetected(MyGeometry : FGeometry, MouseEvent : Const<PRef<FPointerEvent>>, Operation : Ref<unreal.umg.UDragDropOperation>) : Void;
 
 	@:ureplace @:ufunction(BlueprintCallable) @:final private function ListenForInputAction(ActionName : unreal.FName, EventType : unreal.TEnumAsByte<unreal.EInputEvent>, bConsume : Bool, Callback : unreal.umg.FOnInputAction) : Void;
 	@:ureplace @:ufunction(BlueprintCallable) @:final private function StopListeningForInputAction(ActionName : unreal.FName, EventType : unreal.TEnumAsByte<unreal.EInputEvent>) : Void;
 }
+

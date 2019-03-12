@@ -1,10 +1,20 @@
 package unreal;
 
-extern class AActor_Extra {
+extern class AActor_Extra {	
+	
 
-	/** Set of replicated components, stored as an array to save space as this is generally not very large */
-	private var ReplicatedComponents:TArray<UActorComponent>;
+	//public function GetComponents() : TSet<UActorComponent>;
+  
+	@:noTemplate
+	@:typeName 
+	public function GetComponents<T : UActorComponent>( OutComponents:PRef<TArray<T>>, bIncludeFromChildActors:Bool ) : Void;	
+  
+	//public function GetComponents() : TSet<UActorComponent>;	
+	
 
+	public function AddActorLocalRotation(DeltaRotation:FRotator, bSweep:Bool, outSweepResult:PPtr<FHitResult>, Teleport:ETeleportType) : Void;  
+  
+	
 	public function Tick(DeltaSeconds:Float32) : Void;
 
 	public function Reset() : Void;
@@ -71,19 +81,6 @@ extern class AActor_Extra {
 	// Allow actors to initialize themselves on the C++ side
 	public function PostInitializeComponents() : Void;
 	public function GetWorldSettings() : AWorldSettings;
-
-	/**
-	 * Called when an actor is done spawning into the world (from UWorld::SpawnActor).
-	 * For actors with a root component, the location and rotation will have already been set.
-	 * Takes place after any construction scripts have been called
-	 */
-	public function PostActorCreated() : Void;
-
-	/** Called when the lifespan of an actor expires (if he has one). */
-	public function LifeSpanExpired() : Void;
-
-	/** Always called immediately after a new Role is received from the remote. */
-	public function PostNetReceiveRole() : Void;
 
 	/** Get the timer instance from the actors world */
 	@:thisConst
@@ -234,13 +231,4 @@ extern class AActor_Extra {
 	/** Return the ULevel that this Actor is part of. */
 	@:thisConst
 	public function GetLevel(): ULevel;
-
-	/**
-	 * Called on the actor right before replication occurs.
-	 * Only called on Server, and for autonomous proxies if recording a Client Replay.
-	 */
-	public function PreReplication(ChangedPropertyTracker:PRef<IRepChangedPropertyTracker>) : Void;
-
-	/** Fills ReplicatedMovement property */
-	public function GatherCurrentMovement() : Void;
 }

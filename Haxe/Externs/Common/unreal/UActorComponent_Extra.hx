@@ -1,6 +1,12 @@
 package unreal;
 
 extern class UActorComponent_Extra {
+	/**
+	 * Returns a readable name for this component, including the asset name if applicable 
+	 * By default this appends a space plus AdditionalStatObject()
+	 */
+  public function GetReadableName() : FString;
+
   /**
    * Function called every frame on this ActorComponent. Override this function to implement custom logic to be executed every frame.
    * Only executes if the component is registered, and also PrimaryComponentTick.bCanEverTick must be set to true.
