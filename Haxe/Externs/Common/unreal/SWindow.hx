@@ -233,7 +233,12 @@ import unreal.slatecore.FSlateColor;
 	/**
 	 * Returns the DPI scale factor of the native window
 	**/
-	//public function GetDPIScaleFactor() : Float; ????
+	public function GetDPIScaleFactor() : Float;
+
+	/**
+	 * Returns the DPI scale factor of the native window
+	**/
+	public function SetDPIScaleFactor(Factor : Float) : Void;
 			
 	/**
 	 * Returns the configured expected maximum height of the window, or INDEX_NONE if not specified.
