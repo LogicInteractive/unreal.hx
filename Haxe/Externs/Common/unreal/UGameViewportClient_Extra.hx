@@ -31,7 +31,14 @@ package unreal;
 	**/	
 	@:thisConst
 	public function GetViewportSize( ViewportSize:FVector2D ) : Void;
-
+	
+	/**
+		Returns the relevant game instance for this viewport
+	 *
+	**/	
+	@:thisConst
+	public function GetGameInstance() : UGameInstance;
+	
 	/**
 	Controls suppression of the blue transition text messages
 	**/
