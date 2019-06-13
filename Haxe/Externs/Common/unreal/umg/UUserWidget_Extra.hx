@@ -29,6 +29,7 @@ extern class UUserWidget_Extra {
 	private function NativeOnMouseEnter(MyGeometry : Const<PRef<FGeometry>>, MouseEvent : Const<PRef<FPointerEvent>>) : Void;
 	private function NativeOnMouseLeave(InMouseEvent : Const<PRef<FPointerEvent>>) : Void;
 	private function NativeOnKeyDown (InGeometry : Const<PRef<FGeometry>>, InKeyEvent : Const<PRef<FKeyEvent>>) : FReply;
+	private function NativeOnKeyUp (InGeometry : Const<PRef<FGeometry>>, InKeyEvent : Const<PRef<FKeyEvent>>) : FReply;
 	private function NativeOnDragDetected(MyGeometry : Const<PRef<FGeometry>>, MouseEvent : Const<PRef<FPointerEvent>>, Operation : Ref<unreal.umg.UDragDropOperation>) : Void;
 	private function NativeOnDragCancelled(InDragDropEvent : Const<PRef<FDragDropEvent>>, InOperation : UDragDropOperation) : Void;
 	private function NativeOnDragEnter(InGeometry : Const<PRef<FGeometry>>, InDragDropEvent : Const<PRef<FDragDropEvent>>, InOperation : UDragDropOperation) : Void;
@@ -37,9 +38,7 @@ extern class UUserWidget_Extra {
 	private function NativeOnDrop(InGeometry : Const<PRef<FGeometry>>, InDragDropEvent : Const<PRef<FDragDropEvent>>, InOperation : UDragDropOperation) : Bool;
 	private function NativeOnFocusReceived (InGeometry : Const<PRef<FGeometry>>, InFocusEvent : Const<PRef<FFocusEvent>>) : FReply;
  	private function NativeOnFocusLost(InFocusEvent : Const<PRef<FFocusEvent>>) : Void;
-	
  	private function NativeDestruct() : Void;
-	
 	public function OnAnimationFinished_Implementation (Animation:Const<UWidgetAnimation>):Void;
 	public function OnAnimationStarted_Implementation (Animation:Const<UWidgetAnimation>):Void;
 

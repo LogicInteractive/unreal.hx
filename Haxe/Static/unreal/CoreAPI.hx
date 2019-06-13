@@ -5,8 +5,6 @@ import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
 using haxe.macro.Tools;
-
-class UObject {} // trick to avoid triggering build macros
 #else
 import unreal.UObject;
 import unreal.Wrapper;
@@ -170,8 +168,8 @@ class CoreAPI {
 
 #end // UHX_NO_UOBJECT
 
-  @:noUsing public static macro function staticVar(e:Expr):Expr {
-    return uhx.compiletime.CoreAPIMacros.runStaticVar(e);
+  @:noUsing public static macro function staticVar(e:Expr, ?createExpr:Expr):Expr {
+    return uhx.compiletime.CoreAPIMacros.runStaticVar(e, createExpr);
   }
 
   public static macro function staticName(e:ExprOf<String>):Expr {

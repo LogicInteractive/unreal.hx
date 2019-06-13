@@ -8,11 +8,11 @@ using Lambda;
 using StringTools;
 
 class UhxBuild extends UhxBaseBuild {
-  private static var VERSION_LEVEL = 5;
+  private static var VERSION_LEVEL = 7;
   private static inline var PARALLEL_DEP_CHECK = true;
 
   var haxeDir:String;
-  var targetModule:String;
+  var buildVars:UhxBuildVars;
   var defines = [];
   var version:{ MajorVersion:Int, MinorVersion:Int, PatchVersion:Null<Int> };
   var srcDir:String;
@@ -22,11 +22,8 @@ class UhxBuild extends UhxBaseBuild {
   var defineVer:String;
   var definePatch:String;
   var outputStatic:String;
-  var outputDir:String;
-  var buildName:String;
-  var shortBuildName:String;
   var debugMode:Bool;
-  var compserver:String;
+  var compserver:Null<Int>;
   var externsFolder:String;
   var cppiaEnabled:Bool;
 
@@ -44,22 +41,24 @@ class UhxBuild extends UhxBaseBuild {
     super(data, config);
     this.ignoreArgs = MacroHelper.getIgnoreArgs();
     this.haxeDir = rootDir + '/Haxe';
-    this.targetModule = this.data.targetName;
-    if (this.config.mainModule != null) {
-      this.targetModule = this.config.mainModule;
-    } else {
-      if (this.targetModule.endsWith("Editor")) {
-        this.targetModule = this.targetModule.substr(0,this.targetModule.length - "Editor".length);
-      } else if (this.targetModule.endsWith("Server")) {
-        this.targetModule = this.targetModule.substr(0,this.targetModule.length - "Server".length);
-      }
-    }
+    this.buildVars = new UhxBuildVars(this.data, this.config);
 
     this.externsToCompile = new Map();
     this.threadPool = new uhx.build.ThreadPool(this.config.numProcessors);
   }
 
   private function getStampOverride() {
+    var ver = this.buildVars.outputDir + '/Data/uhxver.txt';
+    if (!FileSystem.exists(ver) || Std.parseInt(File.getContent(ver)) != VERSION_LEVEL)
+    {
+      if (FileSystem.exists(this.buildVars.outputDir + '/Static'))
+      {
+        trace('Deleting old static dir since it was previously built with an incompatible build tool');
+        InitPlugin.deleteRecursive(this.buildVars.outputDir + '/Static',true);
+      }
+      return Date.now().getTime();
+    }
+
     var stamp = getNewerStampRec([data.pluginDir + '/Haxe/Static/uhx/compiletime',
       data.pluginDir + '/Haxe/BuildTool/interp/'
     ]);
@@ -78,7 +77,7 @@ class UhxBuild extends UhxBaseBuild {
     if (FileSystem.exists(this.haxeDir + '/baker-arguments.hxml')) {
       addStamp(this.haxeDir + '/baker-arguments.hxml');
     }
-    addStamp(this.outputDir+'/Data/needed-configs.txt');
+    addStamp(this.buildVars.outputDir+'/Data/needed-configs.txt');
 
     return stamp;
   }
@@ -87,7 +86,7 @@ class UhxBuild extends UhxBaseBuild {
     var vars = ['dce','extraCompileArgs','extraCppiaCompileArgs','extraStaticClasspaths',
                 'extraScriptClasspaths', 'disableCppia', 'noStatic', 'disableUObject',
                 'debugger', 'noDynamicObjects', 'compilationServer', 'haxeInstallPath',
-                'haxelibPath', 'forceDebug', 'debugSymbols'];
+                'haxelibPath', 'forceDebug', 'debugSymbols', 'liveReload'];
     var buf = new StringBuf();
     buf.add('engine=${this.version};');
     for (v in vars) {
@@ -101,7 +100,7 @@ class UhxBuild extends UhxBaseBuild {
 
   private function consolidateNeededConfigs() {
     var needed = getNeededConfigs().trim();
-    var target = this.outputDir+'/Data/needed-configs.txt';
+    var target = this.buildVars.outputDir+'/Data/needed-configs.txt';
     if (!FileSystem.exists(target) || File.getContent(target).trim() != needed) {
       if (config.verbose) {
         log('setting new needed config file because ${!FileSystem.exists(target) ? "it does not exist" : ('it has changed: ' + File.getContent(target).trim())}');
@@ -185,34 +184,11 @@ class UhxBuild extends UhxBaseBuild {
       case _:
         'libhaxeruntime.a';
     };
-    var config = data.targetConfiguration;
-    if (config == DebugGame) {
-      config = Development;
-    }
-    var platform = data.targetPlatform;
-    switch(platform) {
-    case Win32 | Win64 | WinRT | WinRT_ARM:
-      platform = "Win";
-    case _:
-    }
-    this.buildName = '${targetModule}-${platform}-${config}-${data.targetType}';
-    var bn = this.buildName.split('-');
-    bn.shift();
-    switch(bn[1]) {
-    case 'Development':
-      bn[1] = 'Dev';
-    case 'Shipping':
-      bn[1] = 'Ship';
-    case 'Debug':
-      bn[1] = 'Dbg';
-    }
-    this.shortBuildName = bn.join('-');
-    this.outputDir = this.data.projectDir + '/Intermediate/Haxe/$buildName';
-    if (!FileSystem.exists(this.outputDir + '/Data')) {
-      FileSystem.createDirectory(this.outputDir + '/Data');
+    if (!FileSystem.exists(this.buildVars.outputDir + '/Data')) {
+      FileSystem.createDirectory(this.buildVars.outputDir + '/Data');
     }
 
-    return '$outputDir/$libName';
+    return '${buildVars.outputDir}/$libName';
   }
 
   private function getBakerChangedFiles(stampPath:String, cps:Array<String>, modulesToCompile:Map<String, Bool>,
@@ -260,9 +236,9 @@ class UhxBuild extends UhxBaseBuild {
               shouldCompile = false;
           if (stamp <= 0) {
             shouldCompile = true;
-          } else if (!FileSystem.exists('$outputDir/$dir/$targetFile')) {
+          } else if (!FileSystem.exists('${outputDir}/$dir/$targetFile')) {
             shouldCompile = true;
-            reason = 'target file does not exist';
+            reason = 'target file does not exist (${outputDir}/$dir/$targetFile)';
           } else if (FileSystem.stat('$path/$file').mtime.getTime() >= stamp) {
             shouldCompile = true;
             reason = 'it is out of date';
@@ -342,8 +318,8 @@ class UhxBuild extends UhxBaseBuild {
       err('getSourceDir(): The directory ${this.data.projectDir}/Source does not exist');
       return null;
     }
-    if (FileSystem.exists('$srcDir/$targetModule')) {
-      return '$srcDir/$targetModule';
+    if (FileSystem.exists('$srcDir/${buildVars.targetModule}')) {
+      return '$srcDir/${buildVars.targetModule}';
     }
     var dirs = [];
     for (file in FileSystem.readDirectory(srcDir)) {
@@ -450,8 +426,8 @@ class UhxBuild extends UhxBaseBuild {
     log('Found base UHT manifest: $baseManifest');
 
     var proj:{ Modules:Array<{Name:String, Type:String}>, Plugins:Array<{Name:String, Enabled:Bool}> } = haxe.Json.parse(sys.io.File.getContent(this.data.projectFile));
-    var targets = [{ name:this.targetModule, path:this.srcDir, headers:[] }],
-        uhtDir = this.outputDir + '/UHT';
+    var targets = [{ name:this.buildVars.targetModule, path:this.srcDir, headers:[] }],
+        uhtDir = this.buildVars.outputDir + '/UHT';
 
     var disabledPlugins = new Map();
     if (proj.Modules != null) {
@@ -459,7 +435,7 @@ class UhxBuild extends UhxBaseBuild {
         if (module.Type == 'Editor' && this.data.targetType != Editor) {
           continue;
         }
-        if (module.Name != this.targetModule) {
+        if (module.Name != this.buildVars.targetModule) {
           var targetPath = this.srcDir + '/../' + module.Name;
           if (FileSystem.exists(targetPath)) {
             targets.push({ name:module.Name, path:targetPath, headers:[] });
@@ -530,7 +506,7 @@ class UhxBuild extends UhxBaseBuild {
     manifest.RootLocalPath = this.data.engineDir + '/..';
     manifest.RootBuildPath = this.data.engineDir + '/../';
     manifest.ExternalDependenciesFile = '$uhtDir/deps.deps';
-    manifest.TargetName = this.targetModule;
+    manifest.TargetName = this.buildVars.targetModule;
 
     var unrealPluginModules = new Map();
     var allPaths = [ for (module in manifest.Modules) haxe.io.Path.normalize(module.BaseDirectory) + '/' ];
@@ -651,7 +627,7 @@ class UhxBuild extends UhxBaseBuild {
     }
 
     var genExternsDir = this.rootDir + '/Haxe/GeneratedExterns';
-    var lastGeneratedFiles = '$outputDir/Data/generatedExterns.txt';
+    var lastGeneratedFiles = '${buildVars.outputDir}/Data/generatedExterns.txt';
     if (!shouldRun) {
       if (!FileSystem.exists(lastGeneratedFiles)) {
         if (config.verbose) {
@@ -750,9 +726,26 @@ class UhxBuild extends UhxBaseBuild {
   }
 
   // Same match UHT makes from System/CPPHeaders.cs
-  static var uhtRegExp = ~/^\s*U(CLASS|STRUCT|ENUM|INTERFACE|DELEGATE)\b/m;
+  static var uhtRegExp = ~/^\s*U(CLASS|STRUCT|ENUM|INTERFACE|DELEGATE)\b/;
   private static function isUhtHeader(path:String, file:String) {
-    return uhtRegExp.match(sys.io.File.getContent(path));
+    // for some reason in some cases, doing a multi-line regexp fails
+    var file = sys.io.File.read(path);
+    try
+    {
+      while(true)
+      {
+        if (uhtRegExp.match(file.readLine()))
+        {
+          file.close();
+          return true;
+        }
+      }
+    }
+    catch(e:haxe.io.Eof)
+    {
+    }
+    file.close();
+    return false;
   }
 
   private static function collectUhtHeaders(dir:String, arr:Array<String>, lastRun:Float):Bool {
@@ -838,9 +831,9 @@ class UhxBuild extends UhxBaseBuild {
     var escapedPluginPath = data.pluginDir.replace('\\','\\\\');
     var forceCreateExterns = this.config.forceBakeExterns == null ? Sys.getEnv('BAKE_EXTERNS') != null : this.config.forceBakeExterns;
 
-    var targetStamp = '$outputDir/Data/$externsFolder.deps',
-        targetStampPart = '$outputDir/Data/$externsFolder-part', //.deps
-        targetFiles = '$outputDir/Data/$externsFolder'; //.files
+    var targetStamp = '${buildVars.outputDir}/Data/$externsFolder.deps',
+        targetStampPart = '${buildVars.outputDir}/Data/$externsFolder-part', //.deps
+        targetFiles = '${buildVars.outputDir}/Data/$externsFolder'; //.files
     var processed = new Map();
 
     var escapedTargetStampPart = targetStampPart.replace('\\','\\\\'),
@@ -912,7 +905,7 @@ class UhxBuild extends UhxBaseBuild {
           '-D bake-externs',
           '-D ${this.defineVer}',
           '-D ${this.definePatch}',
-          '-D UHX_STATIC_BASE_DIR=$outputDir',
+          '-D UHX_STATIC_BASE_DIR=${buildVars.outputDir}',
           this.config.verbose ? '-D UHX_VERBOSE' : '',
           '',
           '-cpp $haxeDir/Generated/$externsFolder',
@@ -1070,12 +1063,12 @@ class UhxBuild extends UhxBaseBuild {
         '-D cppia',
         '-D ${this.defineVer}',
         '-D ${this.definePatch}',
-        '-D UHX_STATIC_BASE_DIR=$outputDir',
+        '-D UHX_STATIC_BASE_DIR=${buildVars.outputDir}',
         '-D UHX_PLUGIN_PATH=${data.pluginDir}',
         '-D UHX_UE_CONFIGURATION=${data.targetConfiguration}',
         '-D UHX_UE_TARGET_TYPE=${data.targetType}',
         '-D UHX_UE_TARGET_PLATFORM=${data.targetPlatform}',
-        '-D UHX_BUILD_NAME=$buildName',
+        '-D UHX_BUILD_NAME=${buildVars.buildName}',
         '-D UHX_BAKE_DIR=$haxeDir/Generated/$externsFolder',
         '-cppia $targetPath',
         '--macro uhx.compiletime.main.CreateCppia.run(' +toMacroDef(this.modulePaths) +', ' + toMacroDef(scriptPaths) + ',' + (config.cppiaModuleExclude == null ? 'null' : toMacroDef(config.cppiaModuleExclude)) + ')',
@@ -1097,6 +1090,11 @@ class UhxBuild extends UhxBaseBuild {
     }
     addTargetDefines(args, data.targetType);
     addConfigurationDefines(args, data.targetConfiguration);
+    addPlatformDefines(args, data.targetPlatform);
+    if (this.config.liveReload)
+    {
+      args.push('-D WITH_LIVE_RELOAD');
+    }
     if (config.extraCppiaCompileArgs != null) {
       args = args.concat(config.extraCppiaCompileArgs);
     }
@@ -1114,7 +1112,13 @@ class UhxBuild extends UhxBaseBuild {
       var defines = MacroHelper.getDefines();
       for (arg in defines.keys()) {
         if (!toIgnore.exists(arg)) {
-          args.push('-D $arg=${defines[arg]}');
+          var def = defines[arg];
+          if (Std.is(def, String) || Std.is(def, Float) || Std.is(def, Bool))
+          {
+            args.push('-D $arg=${def}');
+          } else {
+            args.push('-D $arg=${haxe.Json.stringify(def)}');
+          }
         }
       }
       #end
@@ -1126,7 +1130,7 @@ class UhxBuild extends UhxBaseBuild {
 
     var extraArgs = ['-D use-rrti-doc'];
     if (this.compserver != null) {
-      extraArgs.push('--connect ${this.compserver}');
+      extraArgs.push('--connect ${this.compserver + 1}');
     }
     var tcppia = timer('Cppia compilation');
     args.push('-D BUILDTOOL_VERSION_LEVEL=$VERSION_LEVEL');
@@ -1160,13 +1164,23 @@ class UhxBuild extends UhxBaseBuild {
       this.createHxml('build-script', buildArgs);
       var complArgs = ['--cwd ${rootDir}/Haxe', '--no-output', '-D UHX_DISPLAY'].concat(args);
       this.createHxml('compl-script', complArgs.filter(function(v) return !v.startsWith('--macro')));
+      if (this.config.liveReload)
+      {
+        var liveArgs = ['--cwd ${rootDir}/Haxe', '-D LIVE_RELOAD_BUILD'].concat(args.filter(function(v) return !v.startsWith('--macro') && !v.startsWith('-cppia')));
+        liveArgs.push('# make sure we do not spend time checking dependencies since we know what has changed');
+        liveArgs.push('--macro uhx.compiletime.main.LiveReload.run(${haxe.Json.stringify(this.buildVars.outputDir + '/Data/live-modules.txt')})');
+        liveArgs.push('-cppia ${data.projectDir}/Binaries/Haxe/live.cppia');
+        this.createHxml('build-live', liveArgs);
+      } else if (FileSystem.exists('$haxeDir/gen-build-live.hxml')) {
+        FileSystem.deleteFile('$haxeDir/gen-build-live.hxml');
+      }
     }
     return cppiaRet;
   }
 
   private function compileStatic() {
     trace('compiling Haxe');
-    if (!FileSystem.exists('$outputDir/Static')) FileSystem.createDirectory('$outputDir/Static');
+    if (!FileSystem.exists('${buildVars.outputDir}/Static')) FileSystem.createDirectory('${buildVars.outputDir}/Static');
 
     var curStamp:Null<Date> = null;
     if (this.data.ueEditorRecompile || this.data.ueEditorCompile) {
@@ -1189,12 +1203,12 @@ class UhxBuild extends UhxBaseBuild {
       '-D UHX_UE_TARGET_TYPE=${data.targetType}',
       '-D UHX_UE_TARGET_PLATFORM=${data.targetPlatform}',
       '-D UHX_BAKE_DIR=$haxeDir/Generated/$externsFolder',
-      '-D UHX_BUILD_NAME=$buildName',
+      '-D UHX_BUILD_NAME=${buildVars.buildName}',
       '-D HXCPP_DLL_EXPORT',
       '-D ${this.defineVer}',
       '-D ${this.definePatch}',
 
-      '-cpp $outputDir/Static',
+      '-cpp ${buildVars.outputDir}/Static',
       '--macro uhx.compiletime.main.CreateGlue.run(' +toMacroDef(this.modulePaths) +', ' + toMacroDef(this.scriptPaths) + ')',
     ]);
     var additional = Sys.getEnv('UHX_INTERNAL_ARGS');
@@ -1202,19 +1216,28 @@ class UhxBuild extends UhxBaseBuild {
       args = args.concat(additional.split('\n'));
     }
 
-    if (!FileSystem.exists('$outputDir/Data')) {
-      FileSystem.createDirectory('$outputDir/Data');
+    if (!FileSystem.exists('${buildVars.outputDir}/Data')) {
+      FileSystem.createDirectory('${buildVars.outputDir}/Data');
     }
-    if (!FileSystem.exists('$outputDir/Static/toolchain')) {
-      FileSystem.createDirectory('$outputDir/Static/toolchain');
+    if (!FileSystem.exists('${buildVars.outputDir}/Static/toolchain')) {
+      FileSystem.createDirectory('${buildVars.outputDir}/Static/toolchain');
     }
     for (file in FileSystem.readDirectory('${data.pluginDir}/Haxe/BuildTool/toolchain')) {
-      File.saveBytes('$outputDir/Static/toolchain/$file', File.getBytes('${data.pluginDir}/Haxe/BuildTool/toolchain/$file'));
+      File.saveBytes('${buildVars.outputDir}/Static/toolchain/$file', File.getBytes('${data.pluginDir}/Haxe/BuildTool/toolchain/$file'));
+    }
+    if (FileSystem.exists(this.haxeDir + '/BuildTool/toolchain')) {
+      for (file in FileSystem.readDirectory('${this.haxeDir}/BuildTool/toolchain')) {
+        File.saveBytes('${buildVars.outputDir}/Static/toolchain/$file', File.getBytes('${this.haxeDir}/BuildTool/toolchain/$file'));
+      }
     }
 
     addTargetDefines(args, data.targetType);
     addConfigurationDefines(args, data.targetConfiguration);
     addPlatformDefines(args, data.targetPlatform);
+    if (this.cppiaEnabled && this.config.liveReload)
+    {
+      args.push('-D WITH_LIVE_RELOAD');
+    }
     if (this.config.disableUObject) {
       args.push('-D UHX_NO_UOBJECT');
     }
@@ -1324,6 +1347,10 @@ class UhxBuild extends UhxBaseBuild {
       extraArgs = [
         '-D toolchain=mac-libc'
       ];
+    case 'PS4':
+      extraArgs = [
+        '-D toolchain=ps4',
+      ];
     }
 
     var extraCompilerFlags = [];
@@ -1352,11 +1379,11 @@ class UhxBuild extends UhxBaseBuild {
 
     var compileOnlyArgs = ['-D use-rtti-doc'];
     if (this.compserver != null) {
-      File.saveContent('$outputDir/Data/compserver.txt','1');
+      File.saveContent('${buildVars.outputDir}/Data/compserver.txt','1');
       // Sys.putEnv("HAXE_COMPILATION_SERVER", this.compserver);
       compileOnlyArgs.push('--connect ${this.compserver}');
     } else {
-      File.saveContent('$outputDir/Data/compserver.txt','0');
+      File.saveContent('${buildVars.outputDir}/Data/compserver.txt','0');
     }
 
     var thaxe = timer('Haxe compilation');
@@ -1369,9 +1396,11 @@ class UhxBuild extends UhxBaseBuild {
       this.createHxml('compl-static', complArgs.filter(function(v) return !v.startsWith('--macro')));
     }
 
+    File.saveContent(this.buildVars.outputDir + '/Data/uhxver.txt', VERSION_LEVEL + '');
+
     if (ret == 0 && isCrossCompiling) {
       // somehow -D destination doesn't do anything when cross compiling
-      var hxcppDestination = '$outputDir/Static/libUnrealInit';
+      var hxcppDestination = '${buildVars.outputDir}/Static/libUnrealInit';
       if (debugMode || config.debugSymbols) {
         hxcppDestination += '-debug.a';
       } else {
@@ -1394,7 +1423,7 @@ class UhxBuild extends UhxBaseBuild {
         // dependencies unless we give it a little nudge
         var dep = this.config.noGlueUnityBuild ?
           '${this.srcDir}/Generated/HaxeInit.cpp' :
-          '${this.srcDir}/Generated/Unity/${shortBuildName}/HaxeRuntime.${shortBuildName}.uhxglue.cpp';
+          '${this.srcDir}/Generated/Unity/${buildVars.shortBuildName}/HaxeRuntime.${buildVars.shortBuildName}.uhxglue.cpp';
         trace('Touching $dep to trigger hot-reload');
         // touch the file
         File.saveContent(dep, File.getContent(dep));
@@ -1468,16 +1497,14 @@ class UhxBuild extends UhxBaseBuild {
     this.outputStatic = getLibLocation();
     this.debugMode = data.targetConfiguration != Shipping || config.forceDebug;
     if (config.compilationServer != null) {
-      this.compserver = Std.string(config.compilationServer);
+      // TODO this works around an issue that is fixed in another branch
+      this.compserver = Std.parseInt(config.compilationServer + '');
     }
     if (this.compserver == null) {
-      this.compserver = Sys.getEnv("HAXE_COMPILATION_SERVER_DEFER");
+      this.compserver = Std.parseInt(Sys.getEnv("HAXE_COMPILATION_SERVER_DEFER"));
     }
-    if (this.compserver == null || this.compserver == '') {
-      this.compserver = Sys.getEnv("HAXE_COMPILATION_SERVER");
-    }
-    if (this.compserver == '') {
-      this.compserver = null;
+    if (this.compserver == null) {
+      this.compserver = Std.parseInt(Sys.getEnv("HAXE_COMPILATION_SERVER"));
     }
 
     this.externsFolder = shouldBuildEditor() ? 'Externs_Editor' : 'Externs';
@@ -1546,9 +1573,9 @@ class UhxBuild extends UhxBaseBuild {
           '# (see gen-build-scripts.hxml and gen-build-static.hxml)');
     }
 
-    updateProject(this.targetModule, this.version.MajorVersion + '.' + this.version.MinorVersion);
+    updateProject(this.buildVars.targetModule, this.version.MajorVersion + '.' + this.version.MinorVersion);
 
-    if (!FileSystem.exists(this.outputDir)) FileSystem.createDirectory(this.outputDir);
+    if (!FileSystem.exists(this.buildVars.outputDir)) FileSystem.createDirectory(this.buildVars.outputDir);
 
     if (this.cppiaEnabled) {
       this.config.dce = DceNo;
@@ -1563,8 +1590,8 @@ class UhxBuild extends UhxBaseBuild {
 
     // check if haxe compiler / sources are present
     var hasHaxe = callHaxe(['-version'], false) == 0;
-    if (!FileSystem.exists('${this.outputDir}/Data')) {
-      FileSystem.createDirectory('${this.outputDir}/Data');
+    if (!FileSystem.exists('${this.buildVars.outputDir}/Data')) {
+      FileSystem.createDirectory('${this.buildVars.outputDir}/Data');
     }
 
     if (hasHaxe)
@@ -1575,8 +1602,8 @@ class UhxBuild extends UhxBaseBuild {
         this.hadUhxErr = false;
         ret = this.compileCppia(this.config.ignoreStaticErrors);
         if (this.hadUhxErr) {
-          var cppiaDeps = '${this.outputDir}/Data/cppiaDeps.txt';
-          var staticDeps = '${this.outputDir}/Data/staticDeps.txt';
+          var cppiaDeps = '${this.buildVars.outputDir}/Data/cppiaDeps.txt';
+          var staticDeps = '${this.buildVars.outputDir}/Data/staticDeps.txt';
           // make life easier and make sure that a full build will be performed
           if (FileSystem.exists(cppiaDeps)) {
             FileSystem.deleteFile(cppiaDeps);
@@ -1588,7 +1615,11 @@ class UhxBuild extends UhxBaseBuild {
         }
         if (ret == 0) {
           // build succeeded
-          sys.io.File.copy('${data.projectDir}/Binaries/Haxe/game-recompile.cppia', '${data.projectDir}/Binaries/Haxe/game.cppia');
+          var target = '${data.projectDir}/Binaries/Haxe/game.cppia';
+          if (FileSystem.exists(target)) {
+            FileSystem.deleteFile(target);
+          }
+          FileSystem.rename('${data.projectDir}/Binaries/Haxe/game-recompile.cppia', target);
         } else {
           throw new BuildError('Cppia compilation failed');
         }
@@ -1608,7 +1639,7 @@ class UhxBuild extends UhxBaseBuild {
       // compile static
       if (ret == 0)
       {
-        var compFile = '${this.outputDir}/Data/staticCompile.stamp';
+        var compFile = '${this.buildVars.outputDir}/Data/staticCompile.stamp';
         var depCheck = timer('static dependency check');
         needsStatic = compilationParamsChanged();
         if (needsStatic) {
@@ -1624,10 +1655,10 @@ class UhxBuild extends UhxBaseBuild {
         if (!needsStatic) {
           var templatePath = this.data.pluginDir + '/Haxe/Templates';
           var fns = [
-            checkDependencies.bind('${this.outputDir}/Data/staticDeps.txt', this.outputStatic, compFile,  this.config.verbose, 'static'),
-            this.hasNewModules.bind('${this.outputDir}/Data/staticModules.txt', this.modulePaths, this.config.verbose, 'static'),
-            this.checkProducedFiles.bind('${this.outputDir}/Data/staticProducedFiles.txt', this.config.verbose, 'static'),
-            this.checkRecursive.bind('${this.outputDir}/Data/staticDeps.txt', [templatePath], this.config.verbose, true)
+            checkDependencies.bind('${this.buildVars.outputDir}/Data/staticDeps.txt', this.outputStatic, compFile,  this.config.verbose, 'static'),
+            this.hasNewModules.bind('${this.buildVars.outputDir}/Data/staticModules.txt', this.modulePaths, this.config.verbose, 'static'),
+            this.checkProducedFiles.bind('${this.buildVars.outputDir}/Data/staticProducedFiles.txt', this.config.verbose, 'static'),
+            this.checkRecursive.bind('${this.buildVars.outputDir}/Data/staticDeps.txt', [templatePath], this.config.verbose, true)
           ];
           if (PARALLEL_DEP_CHECK) {
             // we need to invert the logic as the thread pool short cirtcuits when a false is returned
@@ -1664,7 +1695,7 @@ class UhxBuild extends UhxBaseBuild {
 
       // compile cppia
       if (this.cppiaEnabled) {
-        var compFile = '${this.outputDir}/Data/cppiaCompile.stamp';
+        var compFile = '${this.buildVars.outputDir}/Data/cppiaCompile.stamp';
         var depCheck = timer('script dependency check');
         var targetName = this.data.cppiaRecompile ? 'game-recompile' : 'game';
         var targetFile = '${data.projectDir}/Binaries/Haxe/game.cppia';
@@ -1675,10 +1706,10 @@ class UhxBuild extends UhxBaseBuild {
             log('compiling cppia because it was requested by the config option `alwaysBuild`');
           }
         } else {
-          needsCppia = checkDependencies('${this.outputDir}/Data/cppiaDeps.txt', targetFile, compFile, this.config.verbose, 'cppia');
+          needsCppia = checkDependencies('${this.buildVars.outputDir}/Data/cppiaDeps.txt', targetFile, compFile, this.config.verbose, 'cppia');
         }
         if (!needsCppia) {
-          needsCppia = this.hasNewModules('${this.outputDir}/Data/cppiaModules.txt', this.scriptPaths, this.config.verbose, 'cppia');
+          needsCppia = this.hasNewModules('${this.buildVars.outputDir}/Data/cppiaModules.txt', this.scriptPaths, this.config.verbose, 'cppia');
         }
         if (!needsCppia && !needsStatic && Sys.getEnv('UHX_INTERNAL_ARGS') != null && Sys.getEnv('UHX_INTERNAL_ARGS') != '') {
           needsCppia = true;
@@ -1756,7 +1787,7 @@ class UhxBuild extends UhxBaseBuild {
       }
       this.defines.sort(Reflect.compare);
       var allDefs = this.defines.join('\n').trim();
-      var targetDefs = '$outputDir/Data/defines.txt';
+      var targetDefs = '${buildVars.outputDir}/Data/defines.txt';
       if (!FileSystem.exists(targetDefs) || sys.io.File.getContent(targetDefs).trim() != allDefs) {
         sys.io.File.saveContent(targetDefs, allDefs);
       }

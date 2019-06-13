@@ -15,6 +15,9 @@ using uhx.compiletime.tools.MacroHelpers;
   It should be called as a `--macro` command-line option.
  **/
 class CreateGlue {
+  #if haxe4
+  @:persistent
+  #end
   static var firstCompilation = true;
   static var hasRun = false;
   static var lastScriptPaths:Array<String>;
@@ -87,9 +90,6 @@ class CreateGlue {
           case TAbstract(a):
             var a = a.get();
             addFileDep(Context.getPosInfos(a.pos).file, false);
-            if (a.meta.has(':ueHasGenerics')) {
-              cur.gluesToGenerate = cur.gluesToGenerate.add(TypeRef.fromBaseType(a, a.pos).getClassPath());
-            }
           case TClassDecl(c):
             var c = c.get();
             if (!c.meta.has(':scriptGlue')) {
@@ -169,7 +169,7 @@ class CreateGlue {
           }
           Globals.cur.inScriptPass = true;
           toGatherModules = [ for (module in scriptModules) Context.getModule(module) ];
-          ensureCompiled(toGatherModules);
+          // ensureCompiled(toGatherModules);
           scriptClassesAdded = true;
         } else if (!didProcess) {
           Globals.cur.inScriptPass = false;
@@ -186,15 +186,9 @@ class CreateGlue {
               switch(type) {
               case TInst(c,_):
                 var cl = c.get();
-                if (cl.meta.has(':ueHasGenerics')) {
-                  GenericFuncBuild.buildFunctions(c);
-                }
               case TAbstract(a,_):
                 var a = a.get();
                 var cl = a.impl.get();
-                if (a.meta.has(':ueHasGenerics')) {
-                  GenericFuncBuild.buildFunctions(a.impl);
-                }
               case _:
                 throw 'assert';
               }
@@ -227,10 +221,12 @@ class CreateGlue {
 
           // create hot reload helper
           if (Context.defined('WITH_CPPIA')) {
-            LiveReloadBuild.bindFunctions('LiveReloadStatic');
-            var lives = [ for (cls in Globals.cur.liveReloadFuncs.keys()) cls ];
+            var lives = [ for (cls in Globals.cur.explicitLiveReloadFunctions.keys()) cls ];
+            var out = Globals.cur.staticBaseDir + '/Data/livereload.txt';
             if (lives.length > 0) {
-              sys.io.File.saveContent( Globals.cur.staticBaseDir + '/Data/livereload.txt', lives.join('\n') );
+              sys.io.File.saveContent( out, lives.join('\n') );
+            } else if (sys.FileSystem.exists(out)) {
+              sys.FileSystem.deleteFile(out);
             }
           }
           Globals.cur.loadCachedTypes();
@@ -242,6 +238,7 @@ class CreateGlue {
     var builtGlues = [];
     Context.onGenerate( function(gen) {
       Globals.callGenerateHooks(gen);
+      LiveReloadBuild.onGenerate(gen);
       if (Context.defined('WITH_CPPIA')) {
         MetaDefBuild.writeStaticDefs();
       }
@@ -254,6 +251,15 @@ class CreateGlue {
             builtGlues.push({ path:c.toString(), glues:meta.extractStrings(':ugenerated'), isScript:meta.has(':uscript')});
           } else if (meta.has(':uclass')) {
             builtGlues.push({ path:c.toString(), glues:[], isScript:meta.has(':uscript') });
+          } else if (meta.has(':buildXml')) {
+            // sys.FileSystem has an uneeded @:buildXml call that ensures that the std library gets built, even if
+            // we have overridden all the needed cpp.Native* classes
+            switch(c.toString())
+            {
+              case 'sys.FileSystem':
+                meta.remove(':buildXml');
+              case _:
+            }
           }
         case TAbstract(a,_):
           var impl = a.get().impl;
@@ -287,6 +293,7 @@ class CreateGlue {
       writeFileDeps(fileDeps, '${Globals.cur.staticBaseDir}/Data/staticDeps.txt');
       sys.io.File.saveContent('${Globals.cur.staticBaseDir}/Data/staticModules.txt', staticModules.join('\n'));
       writeScriptGlues(builtGlues, '${Globals.cur.staticBaseDir}/Data/scriptGlues.txt');
+      uhx.compiletime.LiveReloadBuild.saveLiveHashes('static-live-hashes.txt');
     });
   }
 
@@ -355,7 +362,8 @@ class CreateGlue {
     hasRun = true;
     if (firstCompilation) {
       firstCompilation = false;
-      Globals.checkRegisteredMacro('static', function() {
+      #if !haxe4
+      Context.onMacroContextReused(function() {
         // trace('macro context reused');
         hasRun = false;
         // we need to add these classpaths again
@@ -369,6 +377,7 @@ class CreateGlue {
         Globals.reset();
         return true;
       });
+      #end
 
       if (Context.defined('WITH_CPPIA')) {
         var clsDef = macro class StaticMetaData {};
@@ -436,8 +445,9 @@ class CreateGlue {
         switch(Context.follow(type)) {
         case TInst(c,_):
           var cl = c.get();
-          for (field in cl.fields.get())
+          for (field in cl.fields.get()) {
             Context.follow(field.type);
+          }
           for (field in cl.statics.get())
             Context.follow(field.type);
           var ctor = cl.constructor;

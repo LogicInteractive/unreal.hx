@@ -169,6 +169,9 @@ extern class UObject_Extra {
   @:glueCppIncludes("UObject/UObjectGlobals.h")
   @:global public static function LoadPackage(inOuter:UPackage, packageLongName:TCharStar, loadFlags:Int):UPackage;
 
+  @:glueCppIncludes("UObject/UObjectGlobals.h")
+  @:global public static function LoadPackageAsync(InName:PRef<Const<FString>>, InGuid:PPtr<Const<FGuid>>=null, InPackageToLoadFrom:Const<TCharStar>=null, @:opt(new FLoadPackageAsyncDelegate()) ?InCompletionDelegate:FLoadPackageAsyncDelegate, InFlags:EPackageFlags=PKG_None, InPIEInstanceID:Int32=-1, InPackagePriority:Int32=0) : Int32;
+
   @:glueCppIncludes("UObject/UObjectHash.h")
   @:global public static function GetObjectsWithOuter(inOuter:UObject, results:PRef<TArray<UObject>>, includeNestedObjects:Bool = true, exclusionFlags:EObjectFlags = RF_NoFlags):Void;
 
@@ -276,7 +279,7 @@ extern class UObject_Extra {
   @:glueCppIncludes("Misc/CoreMisc.h")
   @:global public static function IsRunningDedicatedServer():Bool;
 
-  @:thisConst public function IsTemplate(TemplateTypes:EObjectFlags = RF_ArchetypeObject|RF_ClassDefaultObject):Bool;
+  @:thisConst public function IsTemplate(@:opt(RF_ArchetypeObject|RF_ClassDefaultObject) ?TemplateTypes:EObjectFlags):Bool;
 
   public function GetPrimaryAssetId() : FPrimaryAssetId;
 
@@ -293,7 +296,7 @@ extern class UObject_Extra {
 	/** Called right before being marked for destruction due to network replication */
 	public function PreDestroyFromReplication() : Void;
 
-	public function SaveConfig(Flags:Int = EPropertyFlags.CPF_Config, ?Filename:TCharStar, @:opt(unreal.FConfigCacheIni.GConfig) ?Config:PPtr<FConfigCacheIni>) : Void;
+	public function SaveConfig(@:opt(EPropertyFlags.CPF_Config) ?Flags:EPropertyFlags, ?Filename:TCharStar, @:opt(unreal.FConfigCacheIni.GConfig) ?Config:PPtr<FConfigCacheIni>) : Void;
 	public function UpdateDefaultConfigFile(@:opt(new unreal.FString("")) ?SpecificFileLocation:Const<PRef<FString>>) : Void;
 	public function UpdateGlobalUserConfigFile() : Void;
 }
