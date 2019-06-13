@@ -1,5 +1,7 @@
 package unreal;
 
+import unreal.hal.IFileManager;
+
 @:glueCppIncludes("Misc/FileHelper.h")
 @:noEquals @:noCopy @:uextern extern class FFileHelper
 {
