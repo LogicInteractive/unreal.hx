@@ -13,21 +13,16 @@ using Lambda;
 class CreateCppia {
   static var firstCompilation = true;
   static var hasRun = false;
-  static var compiledModules:{ stamp:Float, modules:Map<String, Bool> };
   static var externsDir:String;
 
   public static function run(staticPaths:Array<String>, scriptPaths:Array<String>, ?excludeModules:Array<String>) {
     Globals.cur.checkBuildVersionLevel();
     externsDir = Context.definedValue('UHX_BAKE_DIR');
     var target = Globals.cur.staticBaseDir;
-    compiledModules = getCompiled(target);
-    var compiled = compiledModules.modules;
-    for (c in compiled.keys()) {
-      Globals.cur.allCompiledModules[c] = true;
-    }
+    var compiled = Globals.cur.getCompiled(target).modules;
 
     registerMacroCalls(target);
-    readScriptGlues('$target/Data/scriptGlues.txt');
+    Globals.cur.readScriptGlues('$target/Data/scriptGlues.txt');
 
     var statics = [];
     for (path in staticPaths) {
@@ -100,61 +95,15 @@ class CreateCppia {
       Context.getType('uhx.meta.MetaDataHelper');
     }
 
-    var compiledGenerics = new Map(),
-        finalized = false;
+    var finalized = false;
     Context.onAfterTyping(function(types) {
       if (types.exists(function(t) return Std.string(t) == 'TClassDecl(uhx.compiletime.main.CreateCppia)')) {
         return; // macro context
       }
       Globals.cur.hasUnprocessedTypes = false;
-      for (t in types) {
-        var genericType = null,
-            pos = null,
-            name = null;
-
-        switch(t) {
-        case TClassDecl(cl):
-          var c = cl.get();
-          pos = c.pos;
-          if (c.meta.has(':ueHasGenerics')) {
-            name = cl.toString();
-            genericType = TInst(cl, [ for (param in c.params) param.t ]);
-          }
-        case TAbstract(at):
-          var a = at.get();
-          pos = a.pos;
-          if (a.meta.has(':ueHasGenerics')) {
-            name = a.impl.toString();
-            genericType = TAbstract(at, [ for (param in a.params) param.t ]);
-          }
-        case _:
-        }
-        if (genericType != null) {
-          var glueGeneric = TypeRef.fromType(genericType, pos).getGlueHelperType().getClassPath();
-          glueGeneric += 'Generic';
-          var ret = new Map();
-          try {
-            switch(Context.getType(glueGeneric)) {
-            case TInst(c,_):
-              for (field in c.get().statics.get()) {
-                ret[field.name] = true;
-              }
-            case _:
-            }
-
-          }
-          catch(e:Dynamic) {
-          }
-
-          compiledGenerics[name] = ret;
-        }
-      }
 
       if (!finalized && !Globals.cur.hasUnprocessedTypes) {
         finalized = true;
-        // create hot reload helper
-        LiveReloadBuild.bindFunctions('LiveReloadScript');
-
         var metaDefs = Globals.cur.classesToAddMetaDef;
         var cur = null;
         while ( (cur = metaDefs.pop()) != null ) {
@@ -170,6 +119,12 @@ class CreateCppia {
         var cur = null;
         while ( (cur = metaDefs.pop()) != null ) {
           MetaDefBuild.addUDelegateMetaDef(cur);
+        }
+
+        var liveFuncs = Globals.cur.explicitLiveReloadFunctions;
+        if (liveFuncs.iterator().hasNext())
+        {
+          uhx.compiletime.LiveReloadBuild.createBindFunctionsMain('uhx.LiveReloadScript');
         }
 
         MetaDefBuild.writeClassDefs();
@@ -190,6 +145,7 @@ class CreateCppia {
     }
     Context.onGenerate(function(types) {
       Globals.callGenerateHooks(types);
+      LiveReloadBuild.onGenerate(types);
       var metaDefs = Globals.cur.classesToAddMetaDef;
       if (metaDefs.length != 0) {
         throw 'assert: sanity check failed. there are still classesToAddMetaDef';
@@ -252,18 +208,6 @@ class CreateCppia {
               }
             }
             addFileDep(Context.getPosInfos(c.pos).file);
-            if (!Context.defined('UHX_DISPLAY')) {
-              var genericFields = compiledGenerics[name];
-              for (field in c.fields.get().concat(c.statics.get())) {
-                if (field.meta.has(':genericInstance')) {
-                  if (genericFields == null || !genericFields.exists(field.name)) {
-                    Context.warning('UHXERR: The generic field implementation ${field.name} was not ' +
-                        'compiled into the latest C++ compilation. Please perform a full C++ compilation - ' +
-                        'otherwise this call will fail', field.pos);
-                  }
-                }
-              }
-            }
             if (isExtern) {
               var name = TypeRef.fastClassPath(c);
               if (c.isInterface || compiled.exists(name)) {
@@ -381,6 +325,7 @@ class CreateCppia {
     Context.onAfterGenerate( function() {
       writeFileDeps(fileDeps, '$target/Data/cppiaDeps.txt');
       sys.io.File.saveContent('$target/Data/cppiaModules.txt', scripts.join('\n'));
+      uhx.compiletime.LiveReloadBuild.saveLiveHashes('cppia-live-hashes.txt');
     });
   }
 
@@ -432,45 +377,6 @@ class CreateCppia {
     if (FileSystem.exists(path)) recurse(path, '');
   }
 
-  private static function readScriptGlues(path:String):Void {
-    var scriptGlues = new Map(),
-        byName = new Map(),
-        curArr = null,
-        scriptGlueTypes = [];
-    var curBase = null;
-    var file = sys.io.File.read(path);
-    try {
-      while(true) {
-        var ln = file.readLine();
-        if (ln == '') continue;
-        switch (ln.charCodeAt(0)) {
-        case ':'.code:
-          var cur = ln.substr(1);
-          curBase = cur + ':';
-          scriptGlues[curBase] = false;
-          byName[cur] = curArr = [];
-        case '+'.code:
-          var cur = ln.substr(1);
-          scriptGlues[curBase + cur] = false;
-          curArr.push(cur);
-        case '='.code:
-          if (ln == '=script') {
-            scriptGlueTypes.push(curBase.substr(0,curBase.length-1));
-          }
-        case _:
-          throw '$path: Unknown script glue part $ln';
-        }
-      }
-    }
-    catch(e:haxe.io.Eof) {
-    }
-
-    file.close();
-    Globals.cur.setCompiledScriptGlues(scriptGlues);
-    Globals.cur.setCompiledScriptGluesByName(byName);
-    Globals.cur.compiledScriptGlueTypes = scriptGlueTypes;
-  }
-
   private static function ensureCompiled(modules:Array<Array<Type>>) {
     var ret = new Map();
     var ustruct = Context.getType('unreal.Struct');
@@ -507,9 +413,10 @@ class CreateCppia {
   private static function registerMacroCalls(target:String) {
     if (hasRun) return;
     hasRun = true;
+    #if !haxe4
     if (firstCompilation) {
       firstCompilation = false;
-      Globals.checkRegisteredMacro('script', function() {
+      Context.onMacroContextReused(function() {
         hasRun = false;
 
         trace('macro context reused');
@@ -517,36 +424,7 @@ class CreateCppia {
         return true;
       });
     }
+    #end
     Globals.cur.setHaxeRuntimeDir();
-  }
-
-  private static function getCompiled(target:String):{ stamp:Null<Float>, modules:Map<String, Bool> } {
-    var ret = new Map(),
-        path = '$target/Data/compiled.txt';
-    if (!FileSystem.exists(path)) {
-      return { stamp:null, modules:ret };
-    }
-    var stamp = FileSystem.stat(path).mtime.getTime(),
-        file = sys.io.File.read(path);
-    try {
-      while(true) {
-        var cur = file.readLine();
-        ret[cur] = true;
-      }
-    }
-    catch(e:haxe.io.Eof) {
-    }
-    file.close();
-
-    if (compiledModules != null) {
-      var old = compiledModules.modules;
-      for (key in old.keys()) {
-        if (!ret.exists(key)) {
-          // Compiler.define('UHX_COMPILED_${key.replace('.','_')}', '0');
-        }
-      }
-    }
-
-    return { stamp:stamp, modules:ret };
   }
 }
