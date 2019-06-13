@@ -1,11 +1,5 @@
 package unreal;
 
-<<<<<<< HEAD
-@:uextern @:ustruct extern class FFileStatData
-{
-
-
-=======
 @:glueCppIncludes("GenericPlatform/GenericPlatformFile.h")
 @:uextern extern class FFileStatData {
   public function new();
