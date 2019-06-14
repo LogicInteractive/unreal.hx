@@ -10,6 +10,8 @@ extern class FViewport_Extra
 	public function CaptureMouse(bCapture:Bool):Void;
 	public function GetMousePos(MousePosition:PRef<FIntPoint>,bLocalPosition:Const<Bool>):Void;
 	
+	@:thisConst
+	public function GetClient() : PPtr<FViewportClient>;
 	
 //GetMousePos
 //(
@@ -17,4 +19,3 @@ extern class FViewport_Extra
     //const bool bLocalPosition
 //)	
 }
-
