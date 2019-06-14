@@ -153,6 +153,7 @@ class InitPlugin {
   private static function updateGameProject(gameDir:String, projectName:String)
   {
     var projFile = gameDir + '/$projectName.uproject';
+	
     var props = haxe.Json.parse(File.getContent(projFile));
     var modules:Array<{ Name:String, Type:String, LoadingPhase:String }> = props.Modules;
     // TODO take this off once we support multiple modules
