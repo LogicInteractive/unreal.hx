@@ -17,7 +17,7 @@ extern class FSlateApplication_Extra {
 	
   public static var CursorPointerIndex(default, never):Const<Int32>;
 
-  public function GetPressedMouseButtons():Const<PRef<TSet<FKey>>>;
+  //public function GetPressedMouseButtons():Const<PRef<TSet<FKey>>>;
 
   public function GetPlatformApplication():TSharedPtr<GenericApplication>;
 
