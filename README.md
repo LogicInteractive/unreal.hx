@@ -1,6 +1,6 @@
 # Unreal.hx
 
-### 4.22 Branch : Requires Hxcpp 4.0.8 and Haxe 4.0 rc2 (for now)
+### 4.22 Branch : Requires Hxcpp 4.0.19 and Haxe 4.0 rc3 (for now) (or hxcpp 4.0.8 / haxe4 rc2)
 
 Unreal.hx is a plugin for Unreal Engine 4 that allows you to write code in the [Haxe](http://haxe.org/) programming language. Haxe is a modern, high-level, type-safe programming language that offers high performance critical for game development.
 
