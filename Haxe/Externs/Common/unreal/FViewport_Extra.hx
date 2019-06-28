@@ -3,8 +3,6 @@ import unreal.slatecore.*;
 
 extern class FViewport_Extra {
   // Accessors.
-  @:thisConst
-  public function GetClient() : PPtr<FViewportClient>;
 
 	public function GetMouseX():Int32;
 	public function GetMouseY():Int32;

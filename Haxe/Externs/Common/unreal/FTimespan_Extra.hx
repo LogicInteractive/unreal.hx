@@ -1,3 +1,5 @@
+package unreal;
+
 extern class FTimespan_Extra {
   function new(Days:Int,Hours:Int,Minutes:Int,Seconds:Int):Void;
 
@@ -7,7 +9,6 @@ extern class FTimespan_Extra {
 	  /** 
 	   * @return Gets the hours component of this time span. Hours component.
 	   * */	
-  function GetHours():Int;
   function GetHours():Int;
 #if (UE_VER < 4.19)
   function GetMicroseconds():Int;
@@ -124,10 +125,6 @@ extern class FTimespan_Extra {
   @:expr(return fromTicks(GetTicks() - b.GetTicks()))
   public function _sub(b:FTimespan):FTimespan;
 
-  public static function FromSeconds(Seconds:Float) : FTimespan;
-
-	
-	
 	/** 
 	 * @return Return the string representation of this time span using a default format.
 	 * */	
