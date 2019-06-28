@@ -2,7 +2,6 @@ package uhx.compiletime.types;
 import haxe.macro.Expr;
 import haxe.macro.Type;
 import haxe.macro.Context;
-import sys.FileSystem;
 
 using uhx.compiletime.tools.MacroHelpers;
 
@@ -12,8 +11,8 @@ class GlueInfo {
 
   public static function getHeaderPath(tref:TypeRef, ?ensureExists=false):String {
     var ret = getHeaderDir(tref);
-    if (ensureExists && !FileSystem.exists(ret)) {
-      FileSystem.createDirectory(ret);
+    if (ensureExists && !Globals.cur.fs.exists(ret)) {
+      Globals.cur.fs.createDirectory(ret);
     }
     return ret + '/' + tref.name + '.h';
   }
@@ -31,8 +30,8 @@ class GlueInfo {
 
   public static function getPublicHeaderPath(tref:TypeRef, ?ensureExists=false):String {
     var ret = getPublicHeaderDir(tref);
-    if (ensureExists && !FileSystem.exists(ret)) {
-      FileSystem.createDirectory(ret);
+    if (ensureExists && !Globals.cur.fs.exists(ret)) {
+      Globals.cur.fs.createDirectory(ret);
     }
     return ret + '/' + tref.name + '.h';
   }
@@ -48,10 +47,33 @@ class GlueInfo {
     return ret + '/Public/${tref.pack.join("/")}';
   }
 
+  public static function getSharedHeaderPath(tref:TypeRef, ?ensureExists=false):String {
+    var ret = getSharedHeaderDir(tref);
+    if (ensureExists && !Globals.cur.fs.exists(ret)) {
+      Globals.cur.fs.createDirectory(ret);
+    }
+    return ret + '/' + tref.name + '.h';
+  }
+
+  public static function getSharedHeaderDir(tref:TypeRef):String {
+    var cur = Globals.cur,
+        ret = null;
+    if (cur.glueUnityBuild) {
+      ret = cur.staticBaseDir + '/Generated';
+    } else {
+      ret = cur.unrealSourceDir + '/Generated';
+    }
+    if (tref == null)
+    {
+      return ret + '/Shared';
+    }
+    return ret + '/Shared/${tref.pack.join("/")}';
+  }
+
   public static function getCppPath(tref:TypeRef, ?ensureExists=false):String {
     var ret = getCppDir(tref);
-    if (ensureExists && !FileSystem.exists(ret)) {
-      FileSystem.createDirectory(ret);
+    if (ensureExists && !Globals.cur.fs.exists(ret)) {
+      Globals.cur.fs.createDirectory(ret);
     }
     return ret + '/' + tref.name + '.cpp';
   }
@@ -83,8 +105,8 @@ class GlueInfo {
       return null;
     }
 
-    if (ensureExists && !FileSystem.exists(dir)) {
-      FileSystem.createDirectory(dir);
+    if (ensureExists && !Globals.cur.fs.exists(dir)) {
+      Globals.cur.fs.createDirectory(dir);
     }
 
     return dir + '/' + UNITY_CPP_PREFIX + umodule + '.' + Globals.cur.shortBuildName + UNITY_CPP_EXT;
@@ -98,8 +120,8 @@ class GlueInfo {
       ret += '/' + arr.join('/');
     }
 
-    if (ensureExists && !FileSystem.exists(ret)) {
-      FileSystem.createDirectory(ret);
+    if (ensureExists && !Globals.cur.fs.exists(ret)) {
+      Globals.cur.fs.createDirectory(ret);
     }
     return ret + '/' + uname + '.h';
   }
