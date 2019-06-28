@@ -63,11 +63,7 @@ class Main {
       {
         log('Skipping pre-build script because hooks are disabled');
       }
-      else if (Sys.getEnv("UE_SKIP_BUILD") == "1")
-      {
-        log("Skipping pre-build script because -SkipBuild was detected");
-      }
-      else
+        else
 #end // UE_PRE_BUILD
       {
         build.run();

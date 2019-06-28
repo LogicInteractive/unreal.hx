@@ -4,7 +4,6 @@
 #include "uhx/DynamicClass.h"
 
 #include "Misc/Paths.h"
-#include "uhx/AutoHaxeInit.h"
 #include "uhx/expose/HxcppRuntime.h"
 
 #ifndef UHX_NO_UOBJECT
@@ -144,7 +143,7 @@ struct TClassCompiledInDefer<UHxBootstrap> : public FFieldCompiledInInfo
 
 UHX_IMPLEMENT_INTRINSIC_CLASS(UHxBootstrap, HAXERUNTIME_API, UObject, COREUOBJECT_API,
 {
-  AutoHaxeInit uhx_init;
+  check_hx_init();
   uhx::expose::HxcppRuntime::startLoadingDynamic();
   for (auto It = ::uhx::DynamicClassHelper::getDynamicsMap().CreateIterator(); It; ++It) {
     UClass *val = It.Value();

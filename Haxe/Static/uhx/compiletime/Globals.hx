@@ -1,5 +1,4 @@
 package uhx.compiletime;
-import haxe.CallStack;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -16,11 +15,10 @@ using uhx.compiletime.tools.MacroHelpers;
   Per-build globals
  **/
 class Globals {
-  public static var MIN_BUILDTOOL_VERSION_LEVEL = 7;
+  public static var MIN_BUILDTOOL_VERSION_LEVEL = 5;
 
   public static var cur(default,null):Globals = new Globals();
 
-  public var id = Std.random(65535);
   /**
     The target unreal source dir
     e.g. {projectDir}/Source/{project}
@@ -36,13 +34,6 @@ class Globals {
   @:isVar public var inCompilationServer(get,null):Bool;
   @:isVar public var pluginDir(default, null):String = Context.definedValue('UHX_PLUGIN_PATH');
 
-  @:allow(uhx.compiletime.NeedsGlueBuild)
-  @:persistent static var classCache(default, null):uhx.compiletime.types.ClassCache.UntypedClassCache;
-
-  public var typedClassCache(default, null):uhx.compiletime.types.ClassCache<ClassField>;
-
-  public var fs(default, null) = new uhx.compiletime.tools.DirectoryCache();
-
   public var module(get,null):String;
   public var glueUnityBuild(default, null):Bool = !Context.defined('no_unity_build');
   public var withEditor(default, null):Bool = Context.defined('WITH_EDITOR');
@@ -52,8 +43,6 @@ class Globals {
   public var buildName(default, null):String = Context.definedValue('UHX_BUILD_NAME');
   public var allCompiledModules(default, null):Map<String, Bool> = new Map();
   public var glueManager:Null<uhx.compiletime.types.GlueManager>;
-  public var compiledModules:{ stamp:Float, modules:Map<String, Bool> };
-  public var liveReloadModules:Map<String, Bool> = new Map();
 
   var compiledScriptGlues:Map<String, Bool> = new Map();
   var compiledScriptGluesByName:Map<String, Array<String>> = new Map();
@@ -61,79 +50,12 @@ class Globals {
 
   @:isVar public var shortBuildName(get, null):String;
 
-  public static function findField(cls:ClassType, field:String, isStatic=false) {
-    // first try to peek from the global class cache
-    var ret = classCache.peekClassData(cls);
-    if (ret != null) {
-      return ret.findField(field, isStatic);
-    }
-
-    // if it doesn't exist, use the local cache instead
-    return cur.typedClassCache.findField(cls, field, isStatic);
+  public function setCompiledScriptGlues(map:Map<String, Bool>) {
+    this.compiledScriptGlues = map;
   }
 
-  public function readScriptGlues(path:String):Void {
-    var scriptGlues = new Map(),
-        byName = new Map(),
-        curArr = null,
-        scriptGlueTypes = [];
-    var curBase = null;
-    var file = sys.io.File.read(path);
-    try {
-      while(true) {
-        var ln = file.readLine();
-        if (ln == '') continue;
-        switch (ln.charCodeAt(0)) {
-        case ':'.code:
-          var cur = ln.substr(1);
-          curBase = cur + ':';
-          scriptGlues[curBase] = false;
-          byName[cur] = curArr = [];
-        case '+'.code:
-          var cur = ln.substr(1);
-          scriptGlues[curBase + cur] = false;
-          curArr.push(cur);
-        case '='.code:
-          if (ln == '=script') {
-            scriptGlueTypes.push(curBase.substr(0,curBase.length-1));
-          }
-        case _:
-          throw '$path: Unknown script glue part $ln';
-        }
-      }
-    }
-    catch(e:haxe.io.Eof) {
-    }
-
-    file.close();
-    this.compiledScriptGlues = scriptGlues;
-    this.compiledScriptGluesByName = byName;
-    this.compiledScriptGlueTypes = scriptGlueTypes;
-  }
-
-  public function getCompiled(target:String):{ stamp:Null<Float>, modules:Map<String, Bool> } {
-    var ret = new Map(),
-        path = '$target/Data/compiled.txt';
-    if (!fs.exists(path)) {
-      return { stamp:null, modules:ret };
-    }
-    var stamp = fs.stat(path).mtime.getTime(),
-        file = sys.io.File.read(path);
-    try {
-      while(true) {
-        var cur = file.readLine();
-        ret[cur] = true;
-      }
-    }
-    catch(e:haxe.io.Eof) {
-    }
-    file.close();
-
-    for (c in ret.keys()) {
-      this.allCompiledModules[c] = true;
-    }
-
-    return this.compiledModules = { stamp:stamp, modules:ret };
+  public function setCompiledScriptGluesByName(map:Map<String, Array<String>>) {
+    this.compiledScriptGluesByName = map;
   }
 
   public function getScriptGluesByName(name:String) {
@@ -178,7 +100,7 @@ class Globals {
     }
     var target = staticBaseDir;
     target += '/Data/compserver.txt';
-    if (fs.exists(target)) {
+    if (FileSystem.exists(target)) {
       var ret = File.getContent(target);
       if (ret == "0") {
         return this.inCompilationServer = false;
@@ -245,17 +167,18 @@ class Globals {
   /**
     All live reload functions that were gathered during the build
    **/
-  public var explicitLiveReloadFunctions:Map<String, Array<{ functionName:String }>> = new Map();
-
-  /**
-    The hashes of each live reload-enabled class
-  **/
-  public var liveHashes:Map<String, String> = new Map();
+  public var liveReloadFuncs:Map<String, Map<String, TypedExpr>> = new Map();
 
   /**
     A cache of TypeConv objects
    **/
   public var typeConvCache:Map<String, TypeConv> = new Map();
+
+  /**
+    This cache is needed to ensure we all have the same classfield when adding metadata to them,
+    otherwise some meta might be lost
+   **/
+  public var cachedFields:Map<String, Map<String, ClassField>> = new Map();
 
   /**
     Linked list of glue types that need to be generated
@@ -337,6 +260,7 @@ class Globals {
   public var staticModules:Map<String, Bool> = new Map();
 
   public static var registeredMacro:Bool;
+  public static var registeredNumPath:String;
 
   private static var generateHooks:Map<String, Array<Type>->Void>;
 
@@ -352,6 +276,40 @@ class Globals {
       for (hook in generateHooks) {
         hook(types);
       }
+    }
+  }
+
+  public static function checkRegisteredMacro(name:String, onMacroReused:Void->Bool) {
+    if (!registeredMacro) {
+      registeredMacro = true;
+      var staticBaseDir = haxe.io.Path.normalize(
+        (Context.defined('cppia') ? Context.definedValue('UHX_STATIC_BASE_DIR') : (haxe.macro.Compiler.getOutput() + '/..'))
+      );
+      registeredNumPath = staticBaseDir + '/Data/$name-num.txt';
+      var num:Null<Int> = null;
+      if (FileSystem.exists(registeredNumPath)) {
+        num = Std.parseInt(sys.io.File.getContent(registeredNumPath));
+      }
+      if (num == null) {
+        num = Std.int(Math.random() * (1 << 30));
+      } else {
+        num++;
+      }
+      if (!sys.FileSystem.exists(staticBaseDir + '/Data')) {
+        sys.FileSystem.createDirectory(staticBaseDir + '/Data');
+      }
+      sys.io.File.saveContent(staticBaseDir + '/Data/$name-num.txt', Std.string(num));
+      Context.onMacroContextReused(function() {
+        var curNum:Null<Int> = null;
+        if (FileSystem.exists(staticBaseDir + '/Data/$name-num.txt')) {
+          curNum = Std.parseInt(sys.io.File.getContent(staticBaseDir + '/Data/$name-num.txt'));
+        }
+        if (curNum == null || curNum != num) {
+          trace('Disposing macro context - conflict found');
+          return false;
+        }
+        return onMacroReused();
+      });
     }
   }
 
@@ -390,7 +348,7 @@ class Globals {
     if (hasOlderCache == null) {
       var dir = unrealSourceDir;
       if (dir == null) return;
-      if (fs.exists('$dir/Generated/defines.txt')) {
+      if (FileSystem.exists('$dir/Generated/defines.txt')) {
         var defines = getDefinesString();
         this.hasOlderCache = File.getContent('$dir/Generated/defines.txt') == defines;
       } else {
@@ -405,10 +363,10 @@ class Globals {
    **/
   public function reserveCacheFile() {
     var dir = unrealSourceDir;
-    if (!fs.exists('$dir/Generated')) {
-      fs.createDirectory('$dir/Generated');
+    if (!FileSystem.exists('$dir/Generated')) {
+      FileSystem.createDirectory('$dir/Generated');
     }
-    fs.saveContent('$dir/Generated/defines.txt', '');
+    File.saveContent('$dir/Generated/defines.txt', '');
   }
 
   /**
@@ -420,11 +378,11 @@ class Globals {
     }
 
     var dir = unrealSourceDir;
-    if (!fs.exists('$dir/Generated')) {
-      fs.createDirectory('$dir/Generated');
+    if (!FileSystem.exists('$dir/Generated')) {
+      FileSystem.createDirectory('$dir/Generated');
     }
     var str = getDefinesString();
-    fs.saveContent('$dir/Generated/defines.txt', str);
+    File.saveContent('$dir/Generated/defines.txt', str);
   }
 
   public function addScriptDef(name:String, def:{ className:String, meta:uhx.meta.MetaDef }) {
@@ -541,13 +499,14 @@ class Globals {
     return cf.meta.hasMeta(':uexpose') || (!isDynamicUType && cf.meta.hasMeta(':uproperty'));
   }
 
-  public static function shouldExposeFunction(cf:ClassField, isDynamicUType:Bool, originalNativeFieldMeta:Null<MetaAccess>) {
+  // if you change this, don't forget to change `shouldExposeFunctionExpr` as well
+  public static function shouldExposeFunction(cf:ClassField, isDynamicUType:Bool, originalNativeField:Null<ClassField>) {
     if (!cf.kind.match(FMethod(_))) {
       return false;
     }
 
-    if (originalNativeFieldMeta != null) { // is override
-      var ufunc = originalNativeFieldMeta.extract(":ufunction");
+    if (originalNativeField != null) { // is override
+      var ufunc = originalNativeField.meta.extract(":ufunction");
       if (ufunc != null) {
         for (meta in ufunc) {
           for (meta in meta.params) {
@@ -567,13 +526,13 @@ class Globals {
     return cf.meta.has(':uexpose') || (!isDynamicUType && cf.meta.has(':ufunction'));
   }
 
-  public static function shouldExposeFunctionExpr(cf:Field, isDynamicUType:Bool, originalNativeFieldMeta:Null<MetaAccess>) {
+  public static function shouldExposeFunctionExpr(cf:Field, isDynamicUType:Bool, originalNativeField:Null<ClassField>) {
     if (!cf.kind.match(FFun(_))) {
       return false;
     }
 
-    if (originalNativeFieldMeta != null) {
-      var ufunc = originalNativeFieldMeta.extract(":ufunction");
+    if (originalNativeField != null) {
+      var ufunc = originalNativeField.meta.extract(":ufunction");
       if (ufunc != null) {
         for (meta in ufunc) {
           for (meta in meta.params) {

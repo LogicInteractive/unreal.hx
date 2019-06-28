@@ -80,7 +80,11 @@ class GlueMethod {
               var sParams = meth.specialization.types.slice(0,params.length),
                   methParams = meth.specialization.types.slice(params.length);
               this.thisConv = thisConv.withData(CStruct(type,flags,info,sParams));
-              meth.specialization = { types:methParams, genericFunction:meth.specialization.genericFunction };
+              if (methParams.length > 0) {
+                meth.specialization = { types:methParams, genericFunction:meth.specialization.genericFunction };
+              } else {
+                meth.specialization = null;
+              }
             }
           case _:
           }
@@ -152,20 +156,6 @@ class GlueMethod {
       meth.meta = [];
     }
 
-    inline function addMeta(name:String) {
-      meth.meta.push({ name:name, pos:meth.pos });
-    }
-
-    if (this.thisConv.data.match(CUObject(_)) && !meth.flags.hasAny(Static)) {
-      if (meth.flags.hasAny(Final)) {
-        addMeta(':final');
-        addMeta(':nonVirtual');
-      }
-    } else {
-      // abstract methods cannot be final
-      meth.meta = meth.meta.filter(function(v) return v.name != ':final');
-    }
-
     var isStatic = meth.flags.hasAny(Static);
     var isProp = meth.flags.hasAny(Property);
     var haxeArgs = this.haxeArgs = meth.args;
@@ -206,7 +196,7 @@ class GlueMethod {
     cppArgDecl.mapJoin(this.glueArgs, function(arg) return arg.t.glueType.getCppType() + ' ' + escapeCpp(arg.name, true));
     var glueHeaderCode = new HelperBuf();
 
-    if (this.templated && !isNoTemplate && meth.specialization == null) {
+    if (this.templated && !isNoTemplate) {
       glueHeaderCode << 'template<';
       glueHeaderCode.mapJoin(meth.params, function(p) return 'class $p');
       glueHeaderCode << '>\n\t';
@@ -227,7 +217,7 @@ class GlueMethod {
     // get cpp body - might change `cppArgs`, `retHaxeType` and `op`
     glueCppBody << this.getCppBody();
 
-    if (this.templated && !isNoTemplate) {
+    if ((this.templated || meth.specialization != null) && !isNoTemplate) {
       glueCppBody << this.getFunctionCallParams();
     }
 
@@ -268,7 +258,7 @@ class GlueMethod {
     }
 
     var glueCppCode = new HelperBuf();
-    if (this.templated && meth.specialization == null && !isNoTemplate) {
+    if (this.templated && !isNoTemplate) {
       glueCppCode << 'template<';
       glueCppCode.mapJoin(meth.params, function(p) return 'class $p');
       glueCppCode << '>\n\t';
@@ -287,7 +277,11 @@ class GlueMethod {
     var allTypes = [ for (arg in this.glueArgs) arg.t ];
     allTypes.push(meth.ret);
 
-    if (!this.templated || isNoTemplate || meth.specialization != null) {
+    inline function addMeta(name:String) {
+      meth.meta.push({ name:name, pos:meth.pos });
+    }
+
+    if (!this.templated || isNoTemplate) {
       if (!isGlueStatic && isTemplatedThis) {
         // in this case, we'll have glueHeader and ueHeaderCode - no cppCode is added
         this.headerCode = baseGlueHeaderCode;
@@ -309,13 +303,22 @@ class GlueMethod {
       type.collectGlueIncludes( headerIncludes );
     }
 
+    if (this.templated && !isNoTemplate) {
+      addMeta(':generic');
+    }
+
     if (meth.specialization != null) {
       isStatic = true;
       meth.flags |= Static;
       this.haxeArgs = this.glueArgs;
     }
 
-    if (this.templated && !isNoTemplate && meth.specialization == null) {
+    if (meth.flags.hasAny(Final)) {
+      addMeta(':final');
+      addMeta(':nonVirtual');
+    }
+
+    if (this.templated && !isNoTemplate) {
       if (!isVoid) {
         this.haxeCode = ['return cast null;'];
       } else {
@@ -528,33 +531,32 @@ class GlueMethod {
     } else {
       body += '(' + cppArgTypes.join(', ') + ')';
     }
-    var blocking = this.meth.meta.hasMeta(':ublocking');
-    if (blocking) {
-      this.cppIncludes.add('uhx/AutoHaxeBlocking.h');
+    var gcFree = this.meth.meta.hasMeta(':gcFree');
+    if (gcFree) {
+      cppIncludes.add('<uhx/expose/HxcppRuntime.h>');
+      outVars << '::uhx::expose::HxcppRuntime::enterGCFreeZone();';
     }
     if (!this.glueRet.haxeType.isVoid()) {
-      if (blocking) {
-        outVars << '\t' + meth.ret.ueType.getCppType() + ' uhx_gc_free_ret ;\n';
-        outVars << '\t{\n\t\tAutoHaxeBlocking uhx_auto_gc_blocking;\n';
-        outVars << '\t\tuhx_gc_free_ret = $body;\n';
-        outVars << '\t}\n';
-        body = '\treturn ' + this.glueRet.ueToGlue('uhx_gc_free_ret', this.ctx);
+      if (gcFree) {
+        outVars << meth.ret.ueType.getCppType() + ' hx_gc_free_ret = $body;';
+        outVars << '::uhx::expose::HxcppRuntime::exitGCFreeZone();';
+        body = 'return ' + this.glueRet.ueToGlue('hx_gc_free_ret', this.ctx);
       } else {
         body = 'return ' + this.glueRet.ueToGlue(body, this.ctx);
       }
-    } else if (blocking) {
-      outVars << 'AutoHaxeBlocking uhx_auto_gc_blocking;\n\t';
+    } else if (gcFree) {
+      body = '($body, ::uhx::expose::HxcppRuntime::exitGCFreeZone())';
     }
     return body;
   }
 
   private function getFunctionCallParams():String {
     var params = new HelperBuf();
-    if (this.templated && meth.specialization == null) {
+    if (this.templated) {
       params << '<';
       params.mapJoin(meth.params, function(param) return param.t.tparamName != null ? (param.t.tparamName + ' : ' + param.t.haxeType) : param.name);
       params << '>';
-    } else if (this.meth.specialization != null && !this.isTemplatedThis && this.meth.specialization.types.length > 0) {
+    } else if (this.meth.specialization != null && !this.isTemplatedThis) {
       var useTypeName = this.meth.meta != null && this.meth.meta.hasMeta(':typeName');
       params << '<';
       params.mapJoin(this.meth.specialization.types, function (tconv) return {
@@ -704,14 +706,10 @@ class GlueMethod {
 
   public function getField():{ field:Field, glue:Null<Field> } {
     var meta = getFieldMeta(true);
+
     var glue:Field = null;
     var isNoTemplate = meth.flags.hasAny(NoTemplate);
-    if (this.templated && !isNoTemplate && meth.specialization == null)
-    {
-      throw new Error('GlueMethod: Cannot generate a templated type when not in the extern baker context', this.meth.pos);
-    }
-
-    if (!(this.templated && meth.specialization == null && isNoTemplate) && this.glueArgs != null) {
+    if (!this.templated || isNoTemplate) {
       var acc:Array<Access> = [APublic];
 
       if (this.isGlueStatic)
@@ -756,14 +754,7 @@ class GlueMethod {
       pos: meth.pos,
       meta: meta,
       kind: FFun({
-        args: [ for (arg in args) {
-          var complex = arg.type.toComplexType();
-          if (arg.opt != null)
-          {
-            complex = macro : Null<$complex>;
-          }
-          { name:arg.name, opt:arg.opt, type:complex };
-        } ],
+        args: [ for (arg in args) { name:arg.name, opt:arg.opt, type:arg.type.toComplexType() } ],
         ret: this.retHaxeType.toComplexType(),
         expr: expr,
         params: (meth.params != null ? [ for (param in meth.params) { name: param.name, constraints: param.t.tparamName != null ? [param.t.haxeType.toComplexType()] : null } ] : null)
@@ -784,58 +775,12 @@ class GlueMethod {
         var name = param.name + '_TP';
         helpers.push({ name:name, opt:true, type: new TypeRef(['unreal'], 'TypeParam', [new TypeRef(param.name)]) });
       }
-      if (helpers.length > 0 && meth.specialization != null && this.haxeArgs.length > 0 && this.haxeArgs[0].name == 'self' && this.haxeArgs[0].t == this.thisConv)
-      {
-        helpers.unshift(args[0]);
-        args = helpers.concat(args.slice(1));
-      } else if (helpers.length > 0) {
-        args = helpers.concat(args);
-      }
+      args = helpers.concat(args);
     }
     return args;
   }
 
   public function getFieldString(buf:CodeFormatter, glue:CodeFormatter):Void {
-    var isNoTemplate = meth.flags.hasAny(NoTemplate);
-    if (this.templated && !isNoTemplate && meth.specialization == null)
-    {
-      buf << '#end' << new Newline();
-      buf << '#if UHX_DISPLAY' << new Newline();
-      this.pvtGetFieldString(buf, null, 'return cast null;');
-      buf << '#else' << new Newline();
-      buf << new Comment(meth.doc);
-      buf << 'macro ';
-      if (meth.flags.hasAny(HaxePrivate)) {
-        buf << 'private ';
-      } else {
-        buf << 'public ';
-      }
-      if (meth.flags.hasAny(Static)) {
-        buf << 'static ';
-      }
-      buf << 'function ' << meth.name << '(';
-      if (!meth.flags.hasAny(Static)) {
-        buf << 'ethis:haxe.macro.Expr' << ', ';
-      }
-      buf << 'args:Array<haxe.macro.Expr>';
-
-      buf << '):haxe.macro.Expr' << new Begin('{')
-          << 'return uhx.compiletime.TemplateBuild.make("' << meth.name << '", "' << thisRef.getClassPath(false) << '", '
-          << (meth.flags.hasAny(Static) ? 'null' : 'ethis') << ', args);'
-      << new End('}')
-      << '#end' << new Newline()
-      << '#if !macro' << new Newline();
-      pvtGetFieldString(buf, null, 'return cast null;', meth.name + '_uhx_type');
-    } else {
-      pvtGetFieldString(buf, glue);
-    }
-  }
-
-  function pvtGetFieldString(buf:CodeFormatter, glue:CodeFormatter, ?exprOverride:String, ?methName:String):Void {
-    if (methName == null)
-    {
-      methName = meth.name;
-    }
     buf << new Comment(meth.doc);
     var meta = this.meth.meta;
     if (meth.specialization != null || !meta.hasMeta(':glueCppIncludes')) {
@@ -859,11 +804,11 @@ class GlueMethod {
       buf << '@:ueHeaderCode("' << new Escaped(this.ueHeaderCode) << '")' << new Newline();
     }
 
-    if (this.haxeCode != null && this.cppCode != null && !meth.flags.hasAny(UnrealReflective) && methName != 'StaticClass') {
+    if (this.haxeCode != null && this.cppCode != null && !meth.flags.hasAny(UnrealReflective) && meth.name != 'StaticClass') {
       var thisType = thisRef.getClassPath().replace('.','_');
-      buf << '#if (!UHX_DISPLAY && cppia && !LIVE_RELOAD_BUILD)' << new Newline();
+      buf << '#if (!UHX_DISPLAY && cppia)' << new Newline();
       buf << '@:deprecated("UHXERR: The field '
-          << methName
+          << meth.name
           << ' was not compiled into the latest C++ compilation. Please perform a full C++ compilation.")' << new Newline();
       buf << '#end' << new Newline();
     }
@@ -872,16 +817,13 @@ class GlueMethod {
 
     /// glue
     var isNoTemplate = meth.flags.hasAny(NoTemplate);
-    if (glue != null)
-    {
-      if (!(this.templated && !isNoTemplate && meth.specialization == null) && this.glueArgs != null) {
-        var st = '';
-        if (this.isGlueStatic)
-          st = 'static';
-        glue.add('public $st function ${escapeGlue(methName)}(');
-        glue.add([ for (arg in this.glueArgs) escapeCpp(arg.name, this.isGlueStatic || this.isTemplatedThis) + ':' + arg.t.haxeGlueType.toString() ].join(', '));
-        glue.add('):' + this.glueRet.haxeGlueType + ';\n');
-      }
+    if ((!this.templated || isNoTemplate) && this.glueArgs != null) {
+      var st = '';
+      if (this.isGlueStatic)
+        st = 'static';
+      glue.add('public $st function ${escapeGlue(meth.name)}(');
+      glue.add([ for (arg in this.glueArgs) escapeCpp(arg.name, this.isGlueStatic || this.isTemplatedThis) + ':' + arg.t.haxeGlueType.toString() ].join(', '));
+      glue.add('):' + this.glueRet.haxeGlueType + ';\n');
     }
 
     if (meth.flags.hasAny(HaxePrivate)) {
@@ -889,13 +831,13 @@ class GlueMethod {
     } else {
       buf << 'public ';
     }
-    if (meth.flags.hasAny(Static) && methName != 'new') {
+    if (meth.flags.hasAny(Static) && meth.name != 'new') {
       buf << 'static ';
     } else if (meth.flags.hasAny(HaxeOverride)) {
       buf << 'override ';
     }
 
-    buf << 'function ' << methName;
+    buf << 'function ' << meth.name;
     if (meth.params != null && meth.params.length > 0) {
       buf << '<';
       buf.mapJoin(meth.params, function(param) return param.t.tparamName != null ? (param.t.tparamName + ' : ' + param.t.haxeType.toString()) : param.name);
@@ -908,14 +850,10 @@ class GlueMethod {
       buf << ';';
     } else {
       buf << new Begin(' {');
-      if (exprOverride != null)
-      {
-        buf << exprOverride;
-      } else {
         if (shouldCheckPointer()) {
           var checkCompl = this.thisConv.data.match(CUObject(_)) ? 'Object' : '';
           buf << '#if (debug || UHX_CHECK_POINTER)' << new Newline();
-          buf << 'uhx.internal.HaxeHelpers.check${checkCompl}Pointer(this, "${methName}");' << new Newline();
+          buf << 'uhx.internal.HaxeHelpers.check${checkCompl}Pointer(this, "${meth.name}");' << new Newline();
           buf << '#end' << new Newline();
         }
 
@@ -926,7 +864,7 @@ class GlueMethod {
             buf << expr << new Newline();
           }
         } else {
-          buf << 'throw "The function ${methName} was not compiled into Unreal.hx. C++ recompilation is needed";';
+          buf << 'throw "The function ${meth.name} was not compiled into Unreal.hx. C++ recompilation is needed";';
         }
         buf << new Newline() << '#else' << new Newline();
 
@@ -934,7 +872,6 @@ class GlueMethod {
           buf << expr << new Newline();
         }
         buf << new Newline() << '#end' << new Newline();
-      }
       buf << new End('}');
     }
   }

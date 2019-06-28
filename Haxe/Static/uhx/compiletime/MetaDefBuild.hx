@@ -97,7 +97,7 @@ class MetaDefBuild {
             {
               repl = Always;
               // check if the function really exists
-              var fn = Globals.findField(base, kind);
+              var fn = haxe.macro.TypeTools.findField(base, kind);
               if (fn == null)
               {
                 throw new Error('The field ${field.name} defined a ureplicate function call ${kind}, but that function was not found in ${base.name}', field.pos);
@@ -156,9 +156,6 @@ class MetaDefBuild {
             }
             func.isCompiled = true;
             func.metas.push({ name:'UnrealHxExpose', isMeta: true });
-          }
-          if (field.meta.has(':thisConst') && func.metas != null && func.metas.exists(function(meta) return meta.name.toLowerCase() == 'blueprintcallable')) {
-            func.metas.push({ name: 'BlueprintPure', isMeta: false });
           }
           var relevantMeta = null;
           if (metas.length > 0) {
@@ -267,7 +264,7 @@ class MetaDefBuild {
     var outputDir = haxe.io.Path.directory(Compiler.getOutput());
     var ntry = Std.int(Math.random() * 0x7FFFFFFF);
     var file = outputDir + '/gameCrcs.data';
-    if (Globals.cur.fs.exists(file)) {
+    if (sys.FileSystem.exists(file)) {
       try {
         var reader = sys.io.File.read(file, true);
         reader.readInt32();
@@ -359,40 +356,47 @@ class MetaDefBuild {
     switch(Context.getType('uhx.meta.CppiaMetaData')) {
     case TInst(c,_):
       var c = c.get();
-      var oldMeta = c.meta.extract('DynamicClasses');
       var oldDefs = [];
-      for (dyn in oldMeta) {
-        if (dyn.params != null) {
-          for (param in dyn.params) {
-            var uclass = objGetField(param, 'uclass');
-            if (uclass != null && !arr.exists(function(v) return v.uclass == uclass)) {
-              oldDefs.push(param);
-            }
+      if (savedClasses == null) {
+        savedClasses = arr;
+      } else {
+        for (cls in savedClasses) {
+          if (!arr.exists(function(v) return v.uclass == cls.uclass)) {
+            oldDefs.push(cls);
           }
         }
+        savedClasses = oldDefs.concat(arr);
       }
       c.meta.remove("DynamicClasses");
-      c.meta.add('DynamicClasses', oldDefs.concat([for (v in arr) macro $v{v}]), Context.currentPos());
+      c.meta.add('DynamicClasses', [for (v in savedClasses) macro $v{v}], Context.currentPos());
 
-      var oldMeta = c.meta.extract('UDelegates');
-      var oldDefs = [];
-      for (meta in oldMeta) {
-        if (meta.params != null) {
-          for (param in meta.params) {
-            var uname = objGetField(param, "uname");
-            if (uname != null && !Globals.cur.scriptDelegateDefs.exists(uname)) {
-              oldDefs.push(param);
-            }
+      var curDelegates = [for (val in Globals.cur.scriptDelegateDefs) val];
+      if (savedDelegates == null) {
+        savedDelegates = curDelegates;
+      } else {
+        var toAdd = [];
+        for (del in savedDelegates) {
+          if (!Globals.cur.scriptDelegateDefs.exists(del.uname)) {
+            toAdd.push(del);
           }
         }
+        for (add in toAdd) {
+          curDelegates.push(add);
+        }
+        savedDelegates = curDelegates;
       }
 
       c.meta.remove("UDelegates");
-      c.meta.add('UDelegates', oldDefs.concat([for (val in Globals.cur.scriptDelegateDefs) macro $v{val}]), Context.currentPos());
+      c.meta.add('UDelegates', [for (val in savedDelegates) macro $v{val}], Context.currentPos());
     case _:
       Context.warning('Invalid type for CppiaMetaData', Context.currentPos());
     }
   }
+
+  // for some reason in the tests, the metadata saved on a previous version would not get updated in subsequent updates
+  // so we're defining them here
+  private static var savedClasses:Array<{ haxeClass:String, uclass:String }> = null;
+  private static var savedDelegates:Array<uhx.meta.MetaDef.UDelegateDef> = null;
 
   private static function objGetField(objExpr:Expr, field:String):Null<String> {
     switch(objExpr.expr) {

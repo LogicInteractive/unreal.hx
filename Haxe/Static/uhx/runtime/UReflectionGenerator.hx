@@ -325,11 +325,7 @@ public static function addHaxeBlueprintOverrides(clsName:String, uclass:UClass) 
           trace('Warning', 'While loading dynamic class $unameWithPrefix: The class $hxPath was not found');
           return null;
         }
-#if DEBUG_HOTRELOAD
-        trace('$id: Updating StaticClass reference for $unameWithPrefix');
-#end
         Reflect.setField(hxClass, 'StaticClass', function() {
-          Sys.println('here old $old ($hxPath)');
           return old;
         });
         return old;
@@ -1197,9 +1193,6 @@ public static function addHaxeBlueprintOverrides(clsName:String, uclass:UClass) 
   }
 
   private static function createClass(outer:UObject, uclassName:String, parent:UClass, parentHxGenerated:Bool, hxPath:String):UClass {
-#if DEBUG_HOTRELOAD
-    trace('$id: creating class $uclassName (hxPath $hxPath)');
-#end
     var hxClass = Type.resolveClass(hxPath);
     if (hxClass == null) {
       trace('Error', 'While loading dynamic class $uclassName the class $hxPath was not found');
@@ -1244,7 +1237,6 @@ public static function addHaxeBlueprintOverrides(clsName:String, uclass:UClass) 
     }
 
     Reflect.setField(hxClass, 'StaticClass', function() {
-      Sys.println('here $uclass ($hxPath)');
       return uclass;
     });
     return uclass;

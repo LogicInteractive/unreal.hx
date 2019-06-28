@@ -26,12 +26,4 @@ class Timer {
     }
   }
 
-  public static function single(name:String) {
-    var ret = new Timer();
-    return function(?pos:haxe.PosInfos) {
-      ret.stop();
-      haxe.Log.trace('$name: $ret', pos);
-    };
-  }
-
 }

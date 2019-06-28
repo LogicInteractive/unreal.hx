@@ -77,8 +77,9 @@ class ExternBaker {
                 if (joinMetas(module, target)) {
                   deps.setExtraFile(module.substr(0, module.length - '_Extra'.length));
                 }
+              } else {
+                filesToCompile[target.toLowerCase()] = { module:module, file:target, localExtern:first };
               }
-              filesToCompile[target.toLowerCase()] = { module:module, file:target, localExtern:first };
               break;
             }
             first = false;
@@ -132,13 +133,12 @@ class ExternBaker {
           buf.add('package ${pack.join('.')};\n');
         }
         var processor = new ExternBaker(buf);
-        var copyFile = null;
         for (type in module) {
           var pos = null;
           var uname = switch(type) {
             case TInst(c,_):
               var c = c.get();
-              if (c.meta.has(':haxeGenerated') || c.name.endsWith('_Extra')) {
+              if (c.meta.has(':haxeGenerated')) {
                 continue;
               }
               pos = c.pos;
@@ -156,16 +156,6 @@ class ExternBaker {
                 continue;
               }
               pos = a.pos;
-              if (a.meta.has(':enum')) {
-                if (module.length > 2) {
-                  Context.warning('@:enum abstract types should be defined in their own modules, with no other type defined', a.pos);
-                  hadErrors = true;
-                  continue;
-                } else {
-                  copyFile = Context.getPosInfos(a.pos).file;
-                  break;
-                }
-              }
               MacroHelpers.getUName(a);
             case TType(t,_):
               // force the type to be built
@@ -233,15 +223,11 @@ class ExternBaker {
         }
 
         var targetFile = '$dir/$name.hx';
-        if (copyFile != null) {
-          File.copy(copyFile, targetFile);
+        var info = getGeneratedInfo(targetFile);
+        if (generatedSourceIsValid(ref.file, targetFile, info)) {
+          File.saveContent(targetFile, buf.toString());
         } else {
-          var info = getGeneratedInfo(targetFile);
-          if (generatedSourceIsValid(ref.file, targetFile, info)) {
-            Globals.cur.fs.saveContent(targetFile, buf.toString());
-          } else {
-            hadErrors = true;
-          }
+          hadErrors = true;
         }
       }
       if (hadErrors) {
@@ -309,12 +295,11 @@ class ExternBaker {
     if (extraModule == null || extraModule.length == 0) {
       return false;
     }
-    var module = extraModule.find(function(m) return switch(m) { case TInst(_.get() => c, _): c.name.endsWith('_Extra'); case _: false; });
-    if (module == null) {
-      throw new Error('No `_Extra` class is defined in this module', pos);
+    if (extraModule.length > 1) {
+      throw new Error('The `_Extra` file should not declare any other type', pos);
     }
 
-    switch(Context.follow(module)) {
+    switch(Context.follow(extraModule[0])) {
     case TInst(_.get() => cextra,_):
       var moduleName = extraModuleName.substr(0,extraModuleName.length - '_Extra'.length);
       var modules = getModule(moduleName, pos);
@@ -400,6 +385,112 @@ class ExternBaker {
     this.buf = new CodeFormatter();
     this.hadErrors = false;
     this.params = [];
+  }
+
+  public function processGenericFunctions(c:Ref<ClassType>):CodeFormatter {
+    var cl = c.get(),
+        base:BaseType = null;
+    switch(cl.kind) {
+    case KAbstractImpl(a):
+      base = a.get();
+      this.type = TAbstract(a, [ for (arg in base.params) arg.t ]);
+    case _:
+      base = cl;
+      this.type = TInst(c, [ for (arg in cl.params) arg.t ]);
+    }
+    this.cls = cl;
+    this.module = cl.module;
+    if (cl.meta.has(':uownerModule')) {
+      this.module = MacroHelpers.extractStrings(cl.meta, ':uownerModule')[0];
+    }
+    this.params = [ for (p in cl.params) p.name ];
+    this.glue = new CodeFormatter();
+    var typeRef = TypeRef.fromBaseType(base, base.pos),
+        glue = typeRef.getGlueHelperType(),
+        caller = new TypeRef(glue.pack, glue.name + "GenericCaller"),
+        genericGlue = new TypeRef(glue.pack, glue.name + "Generic");
+    var implType = cl.pack.join('.') + (cl.pack.length == 0 ? '' : '.') + cl.name;
+    this.glueType = genericGlue;
+
+    this.thisConv = TypeConv.get(this.type, cl.pos, true);
+    var generics = [];
+    var isStatic = true;
+    for (fields in [cl.statics.get(), cl.fields.get()]) {
+      for (field in fields) {
+        if (field.meta.has(':generic')) {
+          field.meta.add(':extern', [], field.pos);
+          // look for implementations
+          var impls = [];
+          for (impl in fields) {
+            if (impl.name.startsWith(field.name + '_') && impl.meta.has(':genericInstance')) {
+              impls.push(impl);
+            }
+          }
+          impls.sort(function(cf1, cf2) return Reflect.compare(cf1.name, cf2.name));
+          generics.push({ isStatic:isStatic && !field.meta.has(':impl'), field: field, impls: impls });
+        }
+      }
+      isStatic = false;
+    }
+
+    if (cl.isInterface) throw new Error('Unreal Glue Code: Templated functions aren\'t supported on interfaces', pos);
+    if (generics.length == 0) return null;
+    this.add('@:ueGluePath("${this.glueType.getClassPath()}")\n');
+    this.add('@:nativeGen\n');
+    this.add('class ');
+    this.add(caller.name);
+    this.begin(' {');
+
+    var methods = [];
+    for (generic in generics) {
+      if (generic.field.meta.has(':expr')) {
+        continue;
+      }
+      // exclude the generic base field
+      for (impl in generic.impls) {
+        impl.meta.remove(':glueCppCode');
+        impl.meta.remove(':glueHeaderCode');
+        // poor man's version of mk_mono
+        var tparams = [ for (param in generic.field.params) Context.typeof(macro null) ];
+        var func = generic.field.type.applyTypeParameters(generic.field.params, tparams);
+        if (!Context.unify(func, impl.type)) {
+          Context.warning('Assert: ${impl.name} doesn\'t unify with ${generic.field.name}', generic.field.pos);
+          continue;
+        }
+
+        var pos = Context.getPosInfos(generic.field.pos);
+        pos.file = pos.file + " (" + impl.name + ")";
+        this.pos = Context.makePosition(pos);
+        impl.pos = this.pos;
+
+        var specializationTypes = [ for (param in tparams) TypeConv.get(param, this.pos, true) ];
+        var specialization = { types:specializationTypes, genericFunction:generic.field.name, mtypes: tparams };
+        var nextIndex = methods.length;
+        this.processField(impl, generic.isStatic, specialization, methods);
+        var args = [];
+        if (!generic.isStatic) {
+          args.push(impl.meta.has(':impl') ? 'this1' : 'this');
+        }
+        for (arg in methods[nextIndex].args) {
+          args.push(arg.name);
+        }
+        if (methods[nextIndex].meta == null) methods[nextIndex].meta = [];
+        methods[nextIndex].meta.push({ name:':ifFeature', params:[macro $v{'${implType}.${impl.name}'}], pos:impl.pos });
+        var call = caller.getCppClass() + '::' + impl.name + '(' + args.join(', ') + ');';
+        if (!methods[nextIndex].ret.haxeType.isVoid()) {
+          call = 'return ' + call;
+        }
+        impl.meta.add(':functionCode', [macro $v{'\t\t' + call}], impl.pos);
+      }
+    }
+
+    for (meth in methods)
+      this.processMethodDef(meth, false);
+    this.end('}');
+
+    this.realBuf.add(this.buf);
+    this.buf = new CodeFormatter();
+    return this.glue;
   }
 
   public function processType(type:Type, ?defaultModule:String):CodeFormatter {
@@ -569,9 +660,7 @@ class ExternBaker {
     var extraName = c.pack.join('.') + (c.pack.length > 0 ? '.' : '') + c.name + '_Extra';
     var extra = getModule(extraName, c.pos);
     if (extra != null && extra.length > 0) {
-      var name = c.name + '_Extra';
-      var module = extra.find(function(m) return switch(m) { case TInst(_.get() => c, _): c.name == name; case _: false; });
-      switch(module) {
+      switch(extra[0]) {
       case TInst(_.get() => ecl,_):
         getOptionals(ecl.meta.get(), this.optionals);
         var efields = ecl.fields.get();
@@ -635,6 +724,13 @@ class ExternBaker {
       }
     }
 
+    for (field in fields.concat(statics)) {
+      if (field.params.length > 0) {
+        this.add('@:ueHasGenerics ');
+        break;
+      }
+    }
+
     var params = new HelperBuf();
     var isNoTemplate = c.meta.has(':noTemplate');
     if (c.params != null && c.params.length > 0 && !isNoTemplate) {
@@ -662,7 +758,7 @@ class ExternBaker {
     if (name == null) {
       name = typeRef.getClassPath();
     }
-    this.add('#if (cppia && !LIVE_RELOAD_BUILD && !macro) @:build(uhx.compiletime.types.CompiledMetaCheck.build("${name}")) #end');
+    this.add('#if cppia @:build(uhx.compiletime.types.CompiledMetaCheck.build("${name}")) #end');
     this.newline();
     if (c.isPrivate) {
       this.add('private ');
@@ -678,7 +774,6 @@ class ExternBaker {
         this.add('class ');
       }
       this.add('${c.name}$params ');
-      this.add('#if !macro ');
       if (c.superClass != null) {
         var supRef = TypeConv.get(TInst(c.superClass.t, c.superClass.params), pos).haxeType.toString();
         this.add('extends $supRef ');
@@ -711,8 +806,7 @@ class ExternBaker {
       } else {
         this.add('@:forward ');
       }
-      this.add('abstract ${c.name}$params');
-      this.add('#if macro (Dynamic) #else (');
+      this.add('abstract ${c.name}$params(');
       if (c.superClass == null) {
         switch(c.meta.extract(':udelegate')[0]) {
         case null:
@@ -759,23 +853,20 @@ class ExternBaker {
       this.add('$t ');
     }
     var methods = [];
-    this.add('#end ');
     this.begin('{');
-    this.add('#if !macro ');
-    this.newline();
       if (isAbstract && !isTemplateStruct && c.params.length > 0 && !isNoTemplate) {
         // if a templated struct extends a non-templated struct, we need to expose this
         this.add('@:extern inline private function getTemplateStruct():unreal.Wrapper.TemplateWrapper { return @:privateAccess this.getTemplateStruct(); }');
         this.newline();
       }
       if (ctor != null) {
-        processField(ctor,true, methods);
+        processField(ctor,true, null, methods);
       }
       for (field in statics) {
-        processField(field,true, methods);
+        processField(field,true, null, methods);
       }
       for (field in fields) {
-        processField(field,false, methods);
+        processField(field,false, null, methods);
       }
 
       if (this.thisConv.data.match(CUObject(_))) {
@@ -1034,8 +1125,6 @@ class ExternBaker {
     for (meth in methods) {
       this.processMethodDef(meth, c.isInterface);
     }
-    this.add('#end');
-    this.newline();
     this.end('}');
 
     // before defining the class, let's go through all types and see if we have any type parameters that are dependent on
@@ -1044,7 +1133,7 @@ class ExternBaker {
     this.buf = new CodeFormatter();
   }
 
-  private function processField(field:ClassField, isStatic:Bool, methods:Array<MethodDef>) {
+  private function processField(field:ClassField, isStatic:Bool, ?specialization:{ types:Array<TypeConv>, mtypes:Array<Type>, genericFunction:String }, methods:Array<MethodDef>) {
     var uname = switch(MacroHelpers.extractStrings(field.meta, ':uname')[0]) {
       case null:
         field.name;
@@ -1189,6 +1278,13 @@ class ExternBaker {
 #end
         var cur = null;
         var args = args;
+        if (specialization != null) {
+          if (field.meta.has(':impl')) {
+            args = args.slice(specialization.types.length + 1);
+          } else {
+            args = args.slice(specialization.types.length);
+          }
+        }
         var flags = MNone;
         if (!field.isPublic) {
           flags |= HaxePrivate | CppPrivate;
@@ -1220,16 +1316,17 @@ class ExternBaker {
 
         methods.push( cur = {
           name: field.name,
-          uname: uname,
+          uname: specialization == null || uname != field.name ? uname : specialization.genericFunction,
           doc: field.doc,
-          meta: field.meta.get(),
+          meta:specialization != null ? field.meta.get().filter(function(field) return field.name != ':functionCode') : field.meta.get(),
           params: [ for (p in field.params) { name:p.name, t:TypeConv.get(p.t, field.pos, null, isNoTemplate) } ],
           args: [ for (arg in args) { name: arg.name, t: TypeConv.get(arg.t, field.pos, null, isNoTemplate), opt:getOpt() } ],
-          ret: TypeConv.get(ret, field.pos, false, isNoTemplate),
+          ret: TypeConv.get(ret, field.pos, specialization != null, isNoTemplate),
           flags: flags,
+          specialization: specialization,
           pos: field.pos,
         });
-        if (uname == 'new' && field.name != 'new') {
+        if (uname == 'new' && field.name != 'new' && specialization == null) {
           // make sure that the return type is of type POwnedPtr
           var realT = getOwnedPtr(ret);
           if (realT == null) {

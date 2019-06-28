@@ -105,7 +105,4 @@ package unreal;
   * @return whether the hash was computed successfully
   */
   static function GetSHA256Signature(Data:ConstAnyPtr, ByteSize:UInt32, OutSignature:PRef<FSHA256Signature>):Bool;
-
-  static function GetEnvironmentVariable(VariableName:Const<TCharStar>):FString;
-  static function SetEnvironmentVar(VariableName:Const<TCharStar>, Value:Const<TCharStar>):Void;
 }

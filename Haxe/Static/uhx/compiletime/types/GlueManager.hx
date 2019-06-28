@@ -1,5 +1,6 @@
 package uhx.compiletime.types;
 import haxe.macro.Context;
+import sys.FileSystem;
 import sys.io.File;
 import uhx.compiletime.tools.*;
 import uhx.compiletime.main.NativeGlueCode;
@@ -60,17 +61,13 @@ class GlueManager {
     if (Globals.cur.glueUnityBuild) {
       cleanDir(Globals.cur.staticBaseDir + '/Generated/Private', TPrivateCpp, TPrivateHeader, touchedFiles);
       cleanDir(Globals.cur.staticBaseDir + '/Generated/Public', TNone, TPublicHeader, touchedFiles);
-      cleanDir(Globals.cur.staticBaseDir + '/Generated/Shared', TNone, TSharedHeader, touchedFiles);
       cleanDir(Globals.cur.unrealSourceDir + '/Generated/Public', TNone, TExportHeader, touchedFiles);
       cleanDir(Globals.cur.unrealSourceDir + '/Generated/Private', TExportCpp, TNone, touchedFiles);
-      cleanDir(Globals.cur.unrealSourceDir + '/Generated/Shared', TNone, TNone, touchedFiles);
     } else {
       cleanDir(Globals.cur.unrealSourceDir + '/Generated/Public', TNone, TPublicHeader | TExportHeader, touchedFiles);
-      cleanDir(Globals.cur.unrealSourceDir + '/Generated/Shared', TNone, TSharedHeader, touchedFiles);
       cleanDir(Globals.cur.unrealSourceDir + '/Generated/Private', TExportCpp | TPrivateCpp, TPrivateHeader, touchedFiles);
       // delete static base directory if it exists
       cleanDir(Globals.cur.staticBaseDir + '/Generated/Public', TNone, TNone, touchedFiles);
-      cleanDir(Globals.cur.staticBaseDir + '/Generated/Shared', TNone, TNone, touchedFiles);
       cleanDir(Globals.cur.staticBaseDir + '/Generated/Private', TNone, TNone, touchedFiles);
     }
   }
@@ -159,7 +156,7 @@ class GlueManager {
     for (module in this.modules.keys()) {
       var targetPath = GlueInfo.getUnityPath(module, false);
       nativeGlueCode.addProducedFile(targetPath);
-      if (this.regenUnityFiles || !Globals.cur.fs.exists(targetPath)) {
+      if (this.regenUnityFiles || !sys.FileSystem.exists(targetPath)) {
         this.modulesChanged[module] = true;
       }
     }
@@ -167,7 +164,7 @@ class GlueManager {
     for (deleted in this.modulesDeleted.keys()) {
       if (!this.modulesChanged.exists(deleted)) {
         var target = GlueInfo.getUnityPath(deleted, false);
-        if (!Globals.cur.fs.exists(target)) {
+        if (!sys.FileSystem.exists(target)) {
           this.modulesChanged[deleted] = true;
         } else {
           if (hasAnyInclude(target, this.modulesDeleted[deleted])) {
@@ -183,9 +180,9 @@ class GlueManager {
       if (files == null)
       {
         var target = GlueInfo.getUnityPath(changed, true);
-        if (Globals.cur.fs.exists(target))
+        if (FileSystem.exists(target))
         {
-          Globals.cur.fs.deleteFile(target);
+          FileSystem.deleteFile(target);
         }
         continue;
       }
@@ -211,21 +208,21 @@ class GlueManager {
       var result = buf.toString();
       var target = GlueInfo.getUnityPath(changed, true);
       if (this.regenUnityFiles) {
-        if (!Globals.cur.fs.exists(target) || File.getContent(target) != result) {
-          Globals.cur.fs.saveContent(target, result);
+        if (!FileSystem.exists(target) || File.getContent(target) != result) {
+          File.saveContent(target, result);
         }
       } else {
-        Globals.cur.fs.saveContent(target, result);
+        File.saveContent(target, result);
       }
     }
 
-    if (Globals.cur.fs.exists(dir)) {
+    if (FileSystem.exists(dir)) {
       var suffix = '.' + Globals.cur.shortBuildName + GlueInfo.UNITY_CPP_EXT;
-      for (file in Globals.cur.fs.readDirectory(dir)) {
+      for (file in FileSystem.readDirectory(dir)) {
         if (file.endsWith('.cpp')) {
           if (!file.endsWith(suffix) || !this.modules.exists(file.substring(GlueInfo.UNITY_CPP_PREFIX.length, file.length - suffix.length))) {
             trace('Deleting unused unity build file $dir/$file');
-            Globals.cur.fs.deleteFile('$dir/$file');
+            FileSystem.deleteFile('$dir/$file');
           }
         }
       }
@@ -243,25 +240,18 @@ class GlueManager {
         mod = cur.module,
         isProgram = Context.defined('UE_PROGRAM');
 
-    Globals.cur.fs.createDirectory(Globals.cur.staticBaseDir + '/Generated/Private');
-    Globals.cur.fs.createDirectory(Globals.cur.staticBaseDir + '/Generated/Public');
-    Globals.cur.fs.createDirectory(Globals.cur.staticBaseDir + '/Generated/Shared');
-    Globals.cur.fs.createDirectory(Globals.cur.unrealSourceDir + '/Generated/Public');
-    Globals.cur.fs.createDirectory(Globals.cur.unrealSourceDir + '/Generated/Private');
-    Globals.cur.fs.createDirectory(Globals.cur.unrealSourceDir + '/Generated/Shared');
-
     // update templates that need to be updated
     function recurse(templatePath:String, toPath:String)
     {
       var checkMap = null;
 
-      if (!Globals.cur.fs.exists(toPath)) {
-        Globals.cur.fs.createDirectory(toPath);
+      if (!FileSystem.exists(toPath)) {
+        FileSystem.createDirectory(toPath);
       } else {
         checkMap = new Map();
       }
 
-      for (file in Globals.cur.fs.readDirectory(templatePath))
+      for (file in FileSystem.readDirectory(templatePath))
       {
         if (isProgram) {
           switch(file) {
@@ -272,12 +262,12 @@ class GlueManager {
         if (checkMap != null) checkMap[file] = true;
         var curTemplPath = '$templatePath/$file',
             curToPath = '$toPath/$file';
-        if (Globals.cur.fs.isDirectory(curTemplPath))
+        if (FileSystem.isDirectory(curTemplPath))
         {
           recurse(curTemplPath, curToPath);
         } else {
           this.nativeGlueCode.addProducedFile(curToPath);
-          var shouldCopy = !Globals.cur.fs.exists(curToPath);
+          var shouldCopy = !FileSystem.exists(curToPath);
           var contents = File.getContent(curTemplPath);
           if (mod != 'HaxeRuntime') {
             contents = contents.replace('HAXERUNTIME', mod.toUpperCase()).replace('HaxeRuntime', mod);
@@ -287,7 +277,7 @@ class GlueManager {
           }
 
           if (shouldCopy) {
-            Globals.cur.fs.saveContent(curToPath, contents);
+            File.saveContent(curToPath, contents);
           }
 
           if (glueUnityBuild && file.endsWith('.cpp')) {
@@ -298,7 +288,7 @@ class GlueManager {
 
       if (checkMap != null)
       {
-        for (file in Globals.cur.fs.readDirectory(toPath)) {
+        for (file in FileSystem.readDirectory(toPath)) {
           if (!checkMap.exists(file)) {
             MacroHelpers.deleteRecursive('$toPath/$file');
           }
@@ -312,10 +302,10 @@ class GlueManager {
     var templateExport = '${cur.unrealSourceDir}/Generated/TemplateExport';
     if (!isProgram) {
       recurse('$pluginPath/Haxe/Templates/Source/HaxeRuntime/Export', templateExport);
-    } else if (Globals.cur.fs.exists(templateExport)) {
+    } else if (FileSystem.exists(templateExport)) {
       MacroHelpers.deleteRecursive(templateExport);
     }
-    if (Globals.cur.fs.exists(oldSrcDir)) {
+    if (FileSystem.exists(oldSrcDir)) {
       MacroHelpers.deleteRecursive(oldSrcDir);
     }
     return srcDir;
@@ -323,7 +313,7 @@ class GlueManager {
 
   private function cleanDir(path:String, cppMask:TouchKind, headerMask:TouchKind, touchedFiles:Map<String, TouchKind>) {
     function recurse(path:String, packPath:String) {
-      for (file in Globals.cur.fs.readDirectory(path)) {
+      for (file in FileSystem.readDirectory(path)) {
         var idx = file.lastIndexOf('.');
         if (idx >= 0 && file.charCodeAt(0) != '.'.code) {
           var name = file.substr(0, idx),
@@ -333,7 +323,7 @@ class GlueManager {
               mask:Null<TouchKind> = null;
           if (ext == 'cpp') {
             mask = cppMask;
-          } else if (ext == 'h' || ext == 'inl') {
+          } else if (ext == 'h') {
             mask = headerMask;
           }
           if (mask != null) {
@@ -347,17 +337,17 @@ class GlueManager {
             if (file.endsWith('.cpp')) {
               regenUnityFiles = true;
             }
-            Globals.cur.fs.deleteFile(fullPath);
+            FileSystem.deleteFile(fullPath);
           }
         } else {
           var fullPath = '$path/$file';
-          if (Globals.cur.fs.isDirectory(fullPath)) {
+          if (FileSystem.isDirectory(fullPath)) {
             recurse(fullPath, packPath + file + '.');
           }
         }
       }
     }
-    if (Globals.cur.fs.exists(path)) {
+    if (FileSystem.exists(path)) {
       recurse(path, '');
     }
   }

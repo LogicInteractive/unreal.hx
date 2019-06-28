@@ -9,12 +9,13 @@ using unreal.CoreAPI;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
-using Lambda;
 using haxe.macro.Tools;
+
+private typedef TArrayImpl<T> = Dynamic;
 #end
 
 @:keep
-@:forward abstract TArray<T>(TArrayImpl<T>) from TArrayImpl<T> to TArrayImpl<T> #if (!bake_externs && !macro) to unreal.Struct to unreal.VariantPtr #end {
+@:forward abstract TArray<T>(TArrayImpl<T>) from TArrayImpl<T> to TArrayImpl<T> #if !bake_externs to unreal.Struct to unreal.VariantPtr #end {
 #if (!bake_externs && !macro)
 
   public var length(get,never):Int;
@@ -289,26 +290,18 @@ using haxe.macro.Tools;
       quicksort( arr, i, hi, f, isRef );
     }
   }
-
-  /**
-    Returns a copy of the current TArray
-  **/
-  inline public function copy():TArray<T>
-  {
-    return cast this.copy();
-  }
 #end
 
   macro public static function create(?tParam:Expr) : Expr {
-    return macro @:pos(haxe.macro.Context.currentPos()) unreal.TArrayImpl.create($tParam);
+    return macro unreal.TArrayImpl.create($tParam);
   }
 
   macro public static function createNew(?tParam:Expr) : Expr {
-    return macro @:pos(haxe.macro.Context.currentPos()) unreal.TArrayImpl.createNew($tParam);
+    return macro unreal.TArrayImpl.createNew($tParam);
   }
 
   macro public function copyCreate(self:Expr, ?tParam:Expr) : Expr {
-    return macro @:pos(haxe.macro.Context.currentPos()) unreal.TArrayImpl.copyCreate($tParam, $self);
+    return macro unreal.TArrayImpl.copyCreate($tParam, $self);
   }
 
   macro public function map(eThis:Expr, funct:Expr) : Expr {
@@ -344,7 +337,7 @@ using haxe.macro.Tools;
       default: throw new Error('funct must be a function', funct.pos);
     }
 
-    return macro @:pos(haxe.macro.Context.currentPos()) {
+    return macro {
       var tmp:unreal.TArray<$returnType> = unreal.TArrayImpl.create();
       for (value in $eThis) {
         if ($funct(value)) {
@@ -370,16 +363,10 @@ using haxe.macro.Tools;
         if (!isKnownType(type)) {
           throw new Error('The full type of the iterable must be known. Make sure it\'s fully typed', array.pos);
         }
-        var tparam = uhx.compiletime.types.TypeConv.get(type, Context.currentPos(), true);
-        // TArray<PRef<>> is not allowed, so make sure we drop it
-        if (tparam.modifiers != null && tparam.modifiers.has(Ref))
-        {
-          tparam = tparam.withModifiers(tparam.modifiers.filter(function(mod) return mod != Ref));
-        }
-        var complex = tparam.haxeType.toComplexType();
-        macro @:pos(haxe.macro.Context.currentPos()) unreal.TArrayImpl.create(new unreal.TypeParam<$complex>());
+        var tparam = type.toComplexType();
+        macro unreal.TArrayImpl.create(new unreal.TypeParam<$tparam>());
       case _:
-        macro @:pos(haxe.macro.Context.currentPos()) unreal.TArrayImpl.create($tparam);
+        macro unreal.TArrayImpl.create($tparam);
     };
     return macro @:pos(array.pos) {
       var ret = $createStatement;
@@ -409,16 +396,11 @@ using haxe.macro.Tools;
 #end
 }
 
-#if !macro
 class TArrayIterator<T> {
   public var ar:TArray<T>;
   public var idx:Int;
   public var num:Int;
-
-  #if !cppia
-  inline
-  #end
-  public function new(ar:TArray<T>) {
+  public inline function new(ar:TArray<T>) {
     this.ar = ar;
     this.idx = 0;
     this.num = ar.Num();
@@ -437,4 +419,3 @@ class TArrayIterator<T> {
     return this.ar.get_Item(this.idx++);
   }
 }
-#end

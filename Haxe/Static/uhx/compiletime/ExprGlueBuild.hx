@@ -6,6 +6,7 @@ import uhx.compiletime.tools.HelperBuf;
 import uhx.compiletime.tools.HeaderWriter;
 import uhx.compiletime.tools.*;
 import uhx.compiletime.types.*;
+import sys.FileSystem;
 
 using haxe.macro.Tools;
 using Lambda;
@@ -174,21 +175,18 @@ class ExprGlueBuild {
     }
   }
 
-  public static function getSuperExpr(fieldName:String, targetFieldName:String, args:Array<Expr>, script:Bool, separateFunction:Bool=false):Expr {
+  public static function getSuperExpr(fieldName:String, targetFieldName:String, args:Array<Expr>, script:Bool):Expr {
     var clsRef = Context.getLocalClass(),
         cls = clsRef.get(),
         pos = Context.currentPos();
-    inline function getSuperError(superField:ClassField) {
-      var ret = null;
+    inline function checkSuper(superField:ClassField) {
       for (meta in superField.meta.extract(':ufunction')) {
         for (meta in meta.params) {
           if (UExtensionBuild.ufuncBlueprintOverridable(meta) && !UExtensionBuild.ufuncBlueprintNativeEvent(meta)) {
-            ret = 'Unreal Glue Generation: This super call "$fieldName" cannot be called, since its parent function is an unimplemented BlueprintImplementableEvent';
-            break;
+            throw new Error('Unreal Glue Generation: This super call "$fieldName" cannot be called, since its parent function is an unimplemented BlueprintImplementableEvent', pos);
           }
         }
       }
-      return ret;
     }
 
     // make sure that the eluper field was not already defined in haxe code
@@ -198,29 +196,9 @@ class ExprGlueBuild {
       if (scls.meta.has(':uextern')) break;
       for (sfield in scls.fields.get()) {
         if (sfield.name == fieldName) {
-          var err = getSuperError(sfield);
-          if (err != null) {
-            if (separateFunction) {
-              return macro @:pos(pos) return throw $v{err};
-            } else {
-              throw new Error(err, pos);
-            }
-          }
+          checkSuper(sfield);
           // this field was already defined in a Haxe class; just use normal super
-          var ret = { expr:ECall(macro @:pos(pos) super.$fieldName, args), pos:pos };
-          if (separateFunction) {
-            switch (Context.follow(sfield.type)) {
-              case TFun(_, t):
-                switch(Context.follow(t)) {
-                  case TAbstract(a,_) if (a.toString() == 'Void'):
-                    return ret;
-                  case _:
-                }
-              case _:
-            }
-            ret = macro return $ret;
-          }
-          return ret;
+          return { expr:ECall(macro @:pos(pos) super.$fieldName, args), pos:pos };
         }
       }
       sup = scls.superClass;
@@ -231,16 +209,9 @@ class ExprGlueBuild {
     }
     var field = sup == null ? null : findField(sup.t.get(), fieldName, false);
     if (field == null) {
-      throw new Error('Unreal Glue Generation: Field "$fieldName" calls super but no field was found on super class', pos);
+      throw new Error('Unreal Glue Generation: Field calls super but no field was found on super class', pos);
     }
-    var err = getSuperError(field);
-    if (err != null) {
-      if (separateFunction) {
-        return macro @:pos(pos) return throw $v{err};
-      } else {
-        throw new Error(err, pos);
-      }
-    }
+    checkSuper(field);
     var fargs = null, fret = null;
     switch(Context.follow(field.type)) {
     case TFun(targs,tret):
@@ -268,9 +239,6 @@ class ExprGlueBuild {
       if (!fret.haxeType.isVoid()) {
         var rtype = fret.haxeType.toComplexType();
         ret = macro ( $ret : $rtype );
-        if (separateFunction) {
-          ret = macro return $ret;
-        }
       }
       return ret;
     }
@@ -283,9 +251,8 @@ class ExprGlueBuild {
       throw new Error('Unreal Glue Generation: super.$fieldName number of arguments differ from super. Expected ${fargs.length}; got ${args.length}', pos);
     var argn = 0;
     var block = [ for (arg in args) {
-      var t = fargs[argn].type.haxeType.toComplexType();
       var name = '__usuper_arg' + argn++;
-      macro var $name:$t = $arg;
+      macro var $name = $arg;
     } ];
     fargs.unshift({ name:'this', type: TypeConv.get(Context.getLocalType(), pos) });
 
@@ -328,11 +295,8 @@ class ExprGlueBuild {
     case _:
     }
     if (meta.has(':uscript') && !script) {
-      var expr = getSuperExpr(fieldName, targetFieldName, args, true, separateFunction);
+      var expr = getSuperExpr(fieldName, targetFieldName, [for (arg in origArgs) macro $i{arg.name} ], true);
       flagCurrentField(targetFieldName, cls, false, expr, sig);
-    }
-    if (separateFunction && !fret.haxeType.isVoid()) {
-      ret = macro @:pos(pos) return $ret;
     }
     return ret;
   }
@@ -453,8 +417,22 @@ class ExprGlueBuild {
     return ret;
   }
 
-  inline private static function findField(cls:ClassType, field:String, isStatic:Bool) {
-    return Globals.cur.typedClassCache.findField(cls, field, isStatic);
+  private static function findField(cls:ClassType, field:String, isStatic:Bool, ?cur:ClassField) {
+    var name = cls.pack.join('.') + '.' + cls.name;
+    var fields = Globals.cur.cachedFields[name];
+    if (fields == null) {
+      Globals.cur.cachedFields[name] = fields = new Map();
+    }
+    var f = fields[field];
+    if (f == null) {
+      if (cur != null) {
+        f = cur;
+      } else {
+        f = cls.findField(field, isStatic);
+      }
+      fields[field] = f;
+    }
+    return f;
   }
 
   private static function flagCurrentField(meth:String, cl:ClassType, isStatic:Bool, expr:Expr, sig:String) {
@@ -609,7 +587,7 @@ class ExprGlueBuild {
     }
 
     for (field in cls.fields.get()) {
-      var field = findField(cls, field.name, false);
+      var field = findField(cls, field.name, false, field);
       if (uprops.exists(field.name)) {
         uprops[field.name] = { cf:field, isStatic:false };
       } else if (superCalls.exists(field.name)) {
@@ -623,7 +601,7 @@ class ExprGlueBuild {
     }
 
     for (field in cls.statics.get()) {
-      var field = findField(cls, field.name, true);
+      var field = findField(cls, field.name, true, field);
       if (uprops.exists(field.name)) {
         uprops[field.name] = { cf:field, isStatic:true };
       } else if (nativeCalls.exists(field.name)) {
@@ -882,7 +860,7 @@ class ExprGlueBuild {
     var args, ret;
     switch(Context.follow(fnType)) {
     case TFun(a,r):
-      args = [ for (arg in a) { t:TypeConv.get(arg.t, abs.pos), name:arg.name } ];
+      args = [ for (arg in a) TypeConv.get(arg.t, abs.pos) ];
       ret = TypeConv.get(r, abs.pos);
     case _:
       throw new Error('Invalid argument for delegate ${parent.name}', abs.pos);
@@ -891,10 +869,9 @@ class ExprGlueBuild {
     var fwds = new Map(),
         incs = new IncludeSet(),
         dummyIncs = new IncludeSet();
-    for (arg in args) {
-      arg.t.collectUeIncludes( incs, fwds, dummyIncs );
+    for (arg in args.concat([ret])) {
+      arg.collectUeIncludes( incs, fwds, dummyIncs );
     }
-    ret.collectUeIncludes(incs, fwds, dummyIncs);
     for (fwd in fwds) {
       writer.forwardDeclare( fwd );
     }
@@ -963,10 +940,9 @@ class ExprGlueBuild {
     var paramNames = abs.meta.extractStrings(':uParamName');
     for (i in 0...args.length) {
       var arg = args[i];
-      writer.buf.add(', ${arg.t.ueType.getCppType()}');
+      writer.buf.add(', ${arg.ueType.getCppType()}');
       if (isDynamicDelegate) {
-        var paramName = paramNames[i] != null ? paramNames[i] : arg.name;
-        if (paramName == '') paramName = 'arg$i';
+        var paramName = paramNames[i] != null ? paramNames[i] : 'arg$i';
         writer.buf.add(', $paramName');
       }
     }

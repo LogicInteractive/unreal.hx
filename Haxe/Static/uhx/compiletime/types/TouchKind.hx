@@ -9,8 +9,7 @@ using StringTools;
   var TPrivateHeader = 4;
   var TPublicHeader = 8;
   var TPrivateCpp = 16;
-  var TSharedHeader = 32;
-  var TAll = 63;
+  var TAll = 31;
   var TExport = 3;
 
   public static function parse(str:String, pos:Position):TouchKind {

@@ -821,7 +821,7 @@ unreal::UIntPtr uhx::TMapReflect_obj::FindOrAdd(unreal::VariantPtr self, unreal:
 
 				localKeyProp->CopySingleValueToScriptVM(NewElementKey, keyPtr);
 			},
-			[localValueProp, result, localMapLayout](void* NewElementValue) mutable
+			[localValueProp, result, localMapLayout](void* NewElementValue)
 			{
 				if (localValueProp->PropertyFlags & CPF_ZeroConstructor)
 				{
@@ -832,11 +832,11 @@ unreal::UIntPtr uhx::TMapReflect_obj::FindOrAdd(unreal::VariantPtr self, unreal:
 					localValueProp->InitializeValue(NewElementValue);
 				}
 
-        result = NewElementValue;
+				localValueProp->CopySingleValueToScriptVM(NewElementValue, result);
 			},
-			[localValueProp, result](void* ExistingElementValue) mutable
+			[localValueProp, result](void* ExistingElementValue)
 			{
-        result = ExistingElementValue;
+				localValueProp->CopySingleValueToScriptVM(ExistingElementValue, result);
 			},
 			[localKeyProp](void* ElementKey)
 			{
@@ -855,7 +855,7 @@ unreal::UIntPtr uhx::TMapReflect_obj::FindOrAdd(unreal::VariantPtr self, unreal:
 		);
   }
 
-  return result != nullptr ? getValueWithProperty(localValueProp, result) : 0;
+  return getValueWithProperty(localValueProp, result);
 }
 
 void uhx::TMapReflect_obj::set_Item(unreal::VariantPtr self, unreal::UIntPtr key, unreal::UIntPtr val) {
@@ -1067,6 +1067,16 @@ void uhx::TSetReflect_obj::assign(unreal::VariantPtr self, unreal::VariantPtr va
   }
 
   targetHelper.Rehash();
+}
+
+void uhx::ue::RuntimeLibrary_obj::ensureMainThread() {
+  static uint32 mainThread = FPlatformTLS::GetCurrentThreadId();
+  uint32 currentThread = FPlatformTLS::GetCurrentThreadId();
+  checkf(currentThread == mainThread,
+        TEXT("Function called on wrong thread with id '%d' but supposed to be called on main thread (id=%d)."),
+        currentThread,
+        mainThread
+    );
 }
 
 int uhx::ue::RuntimeLibrary_obj::getHaxeGcRefOffset() {

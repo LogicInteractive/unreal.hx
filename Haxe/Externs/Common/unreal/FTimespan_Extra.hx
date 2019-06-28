@@ -1,54 +1,61 @@
-extern class FTimespan_Extra {
-  function new(Days:Int,Hours:Int,Minutes:Int,Seconds:Int):Void;
+package unreal;
 
-  @:uname(".ctor") public static function fromTicks(Ticks:Int64):FTimespan;
+@:glueCppIncludes("Misc/Timespan.h")
+extern class FTimespan_Extra
+{
+	  function new(Days:Int,Hours:Int,Minutes:Int,Seconds:Int):Void;
 
-  function GetDays():Int;
+	  @:uname(".ctor") public static function fromTicks(Ticks:Int64):FTimespan;
+
+	  function GetDays():Int;
 	  /** 
 	   * @return Gets the hours component of this time span. Hours component.
 	   * */	
-  function GetHours():Int;
-  function GetHours():Int;
-#if (UE_VER < 4.19)
-  function GetMicroseconds():Int;
-  function GetMilliseconds():Int;
-#else
-  function GetFractionMicro():Int;
-  function GetFractionMilli():Int;
-#end
+	  function GetHours():Int;
+	#if (UE_VER < 4.19)
+		function GetMicroseconds():Int;
+		function GetMilliseconds():Int;
+	#else
+		function GetFractionMicro():Int;
+		function GetFractionMilli():Int;
+	#end
 	/** 
 	* @return Get the minutes component of this time span. Minutes component.
 	* */	
-  function GetMinutes():Int;
+	function GetMinutes():Int;
 	/** 
 	* @return Get the seconds component of this time span. Seconds component.
 	* */	
-  function GetSeconds():Int;
+	function GetSeconds():Int;
 	/** 
 	* @return Get the number of ticks represented by this time span. Number of ticks.
 	* */	
-  function GetTicks():Int64;
+	function GetTicks():Int64;
 
 	/** 
 	 * @return Get the total number of days represented by this time span. Number of days.
 	 * */	
-  function GetTotalDays():Float64;
-  function GetTotalHours():Float64;
+	function GetTotalDays():Float64;
+	
+	/** 
+	 * @return Get the total number of hours represented by this time span. Number of hours.
+	 * */	
+	function GetTotalHours():Float64;
 	
 	/** 
 	 * @return Get the total number of microseconds represented by this time span. Number of microseconds.
 	 * */	
-  function GetTotalMicroseconds():Float64;
+	function GetTotalMicroseconds():Float64;
 	
 	/** 
 	 * @return Get the total number of minutes represented by this time span. Number of minutes.
 	 * */	
-  function GetTotalMinutes():Float64;
+	function GetTotalMinutes():Float64;
 	
 	/** 
 	 * @return Get the total number of seconds represented by this time span. Number of seconds.
 	 * */	
-  function GetTotalSeconds():Float64;
+	function GetTotalSeconds():Float64;
 	
 	/** 
 	 * @return Check whether this time span is zero. true if the time span is zero, false otherwise.
@@ -114,24 +121,21 @@ extern class FTimespan_Extra {
 	 * @return Gets the fractional seconds (in nanosecond resolution).
 	 * */	
 	//public function GetFractionNano():Int32;
-
-
-  @:op(A+B)
-  @:expr(return fromTicks(GetTicks() + b.GetTicks()))
-  public function _add(b:FTimespan):FTimespan;
-
-  @:op(A-B)
-  @:expr(return fromTicks(GetTicks() - b.GetTicks()))
-  public function _sub(b:FTimespan):FTimespan;
-
-  public static function FromSeconds(Seconds:Float) : FTimespan;
-
 	
 	
 	/** 
 	 * @return Return the string representation of this time span using a default format.
 	 * */	
 	function ToString():FString;
+  
+	@:op(A+B)
+	@:expr(return fromTicks(GetTicks() + b.GetTicks()))
+	public function _add(b:FTimespan):FTimespan;
+
+	@:op(A-B)
+	@:expr(return fromTicks(GetTicks() - b.GetTicks()))
+	public function _sub(b:FTimespan):FTimespan;
+
 }
 
 
