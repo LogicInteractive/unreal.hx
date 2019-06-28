@@ -2,7 +2,6 @@ package uhx.compiletime.main;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
-import sys.FileSystem;
 import sys.io.File;
 import uhx.compiletime.tools.*;
 import uhx.compiletime.types.*;
@@ -20,6 +19,8 @@ class NativeGlueCode
   private var glueTypes:Map<String, Ref<ClassType>>;
   private var modules:Map<String,Bool>;
   private var producedFiles:Array<String>;
+  private var loctexts:Array<{ text:String, ns:String, key:String, pos:Position }>;
+  private var generateLoctext:Bool;
 
   private var stampOutput:String;
   // This version gets bumped each time a fundamental glue generation has changed
@@ -32,9 +33,11 @@ class NativeGlueCode
     this.modules = new Map();
     this.glueTypes = new Map();
     this.stampOutput = haxe.macro.Compiler.getOutput() + '/Stamps/$glueGenerationVersion';
-    if (!FileSystem.exists(this.stampOutput)) {
-      FileSystem.createDirectory(this.stampOutput);
+    if (!Globals.cur.fs.exists(this.stampOutput)) {
+      Globals.cur.fs.createDirectory(this.stampOutput);
     }
+    this.loctexts = [];
+    this.generateLoctext = !Context.defined('UHX_SKIP_LOCTEXT');
     Globals.cur.glueManager = this.glues;
   }
 
@@ -45,19 +48,19 @@ class NativeGlueCode
   private function getNewerUhxStamp() {
     var best = .0;
     function recurse(dir:String) {
-      for (file in FileSystem.readDirectory(dir)) {
+      for (file in Globals.cur.fs.readDirectory(dir)) {
         if (file.endsWith('.hx')) {
-          var time = FileSystem.stat('$dir/$file').mtime.getTime();
+          var time = Globals.cur.fs.stat('$dir/$file').mtime.getTime();
           if (time > best) {
             best = time;
           }
-        } else if (FileSystem.isDirectory('$dir/$file')) {
+        } else if (Globals.cur.fs.isDirectory('$dir/$file')) {
           recurse('$dir/$file');
         }
       }
     }
     for (cp in Context.getClassPath()) {
-      if (FileSystem.exists('$cp/uhx/compiletime') && FileSystem.isDirectory('$cp/uhx/compiletime')) {
+      if (Globals.cur.fs.exists('$cp/uhx/compiletime') && Globals.cur.fs.isDirectory('$cp/uhx/compiletime')) {
         recurse('$cp/uhx/compiletime');
       }
     }
@@ -219,7 +222,8 @@ class NativeGlueCode
       for (inc in field.meta.extractStrings(':glueCppIncludes'))
         writer.include(inc);
     }
-    return writer.close(null);
+    var ret = writer.close(null);
+    return ret;
   }
 
   public function writeGlueCpp(cl:ClassType) {
@@ -261,21 +265,21 @@ class NativeGlueCode
     } else {
       glues.setDeleted(cppPath, firstModule);
     }
-    File.saveContent(stampPath,'');
+    Globals.cur.fs.saveContent(stampPath,'');
   }
 
   private function checkShouldGenerate(stampPath:String, targetPath:String, clt:ClassType):Bool {
     if (Globals.cur.hasOlderCache) {
-      if (!FileSystem.exists(targetPath)) return true;
+      if (!Globals.cur.fs.exists(targetPath)) return true;
       if (clt.meta.has(':wasCompiled')) {
         return false;
       }
       if (clt.meta.has(':uextern')) {
         // we only need to update if the source file was changed more recently
         var sourceFile = MacroHelpers.getPath( Context.getPosInfos(clt.pos).file );
-        if (sourceFile != null && FileSystem.exists(stampPath)) {
-          var stampPath = FileSystem.stat(stampPath).mtime.getTime(),
-              sourceStat = FileSystem.stat(sourceFile).mtime.getTime();
+        if (sourceFile != null && Globals.cur.fs.exists(stampPath)) {
+          var stampPath = Globals.cur.fs.stat(stampPath).mtime.getTime(),
+              sourceStat = Globals.cur.fs.stat(sourceFile).mtime.getTime();
           if (stampPath > sourceStat) {
             return false;
           }
@@ -332,8 +336,103 @@ class NativeGlueCode
         var templWriter = new HeaderWriter(path);
         writeUEHeader(cl, templWriter, gluePath);
       }
-      File.saveContent(stampPath,'');
+      Globals.cur.fs.saveContent(stampPath,'');
     }
+  }
+
+  public function prepareUExposeClass(cl:ClassType)
+  {
+    var wrapperPath = TypeRef.fromBaseType(cl, cl.pos);
+    var originalPath = wrapperPath.with(wrapperPath.name + '_Haxe');
+    if (!cl.meta.has(':native'))
+    {
+      cl.meta.add(':native', [macro $v{originalPath.getClassPath()}], cl.pos);
+    }
+    if (!cl.meta.has(':ifFeature') && !cl.meta.has(':keep')) {
+      cl.meta.add(':keep', [], cl.pos);
+    }
+    if (!cl.meta.has(':nativeGen'))
+    {
+      cl.meta.add(':nativeGen', [], cl.pos);
+    }
+
+    var kind:TouchKind = TSharedHeader;
+    var targetPath = GlueInfo.getSharedHeaderPath(TypeRef.parseClassName( wrapperPath.getClassPath() ), true);
+
+    var stampPath = '$stampOutput/$wrapperPath-expose.h.stamp',
+        shouldGenerate = checkShouldGenerate(stampPath, targetPath, cl);
+    glues.touch(kind, wrapperPath.getClassPath());
+
+    if (!shouldGenerate)
+    {
+      return;
+    }
+
+    var header = new uhx.compiletime.tools.HeaderWriter(targetPath);
+    var incs = new uhx.compiletime.tools.IncludeSet();
+    header.include(originalPath.getClassPath().replace('.','/') + '.h');
+    header.include('uhx/AutoHaxeInit.h');
+    var buf = header.buf;
+
+    for (pack in cl.pack)
+    {
+      buf << 'namespace $pack {\n';
+    }
+
+    buf << 'class ${cl.name} {\npublic:';
+
+    var extraCode = cl.meta.extractStrings(':wrapperClassCode')[0];
+    if (extraCode != null)
+    {
+      buf << extraCode;
+    }
+    var originalClass = originalPath.getCppClass();
+    for (field in cl.statics.get())
+    {
+      if (field.meta.has(':extern'))
+      {
+        continue;
+      }
+      switch(Context.follow(field.type))
+      {
+      case TFun(args,ret):
+        var name = field.name;
+        var args = [ for (arg in args) { name:TypeConv.changeCppName(arg.name), t:TypeConv.get(arg.t, field.pos) }];
+        var ret = TypeConv.get(ret, field.pos);
+        buf.add('\tinline static ${ret.glueType.getCppType()} $name(');
+        var first = true;
+        for (arg in args)
+        {
+          if (first)
+          {
+            first = false;
+          } else {
+            buf.add(', ');
+          }
+          arg.t.collectUeIncludes(incs);
+          buf.add(arg.t.glueType.getCppType() + ' ' + arg.name);
+        }
+        buf.add(') {\n\t\tAutoHaxeInit uhx_auto_init;\n\t\t');
+        if (!ret.ueType.isVoid())
+        {
+          buf.add('return ');
+        }
+        buf.add('$originalClass::$name(');
+        buf.mapJoin(args, function(arg) return arg.name);
+        buf.add(');\n\t}\n');
+      case _:
+      }
+    }
+    for (inc in incs)
+    {
+      header.include(inc);
+    }
+    buf << '};\n';
+    for (pack in cl.pack)
+    {
+      buf << '}\n';
+    }
+    header.close(null);
   }
 
   public function onAfterGenerate() {
@@ -352,16 +451,17 @@ class NativeGlueCode
         writeGlueCpp(cl);
       }
       if (!cl.isExtern && cl.meta.has(':uexpose')) {
+        cpath = cl.meta.extractStrings(':native')[0];
         // copy the header to the generated folder
-        glues.touch(TPublicHeader, cpath);
+        glues.touch(TSharedHeader, cpath);
         var path = cpath.replace('.','/');
 
         var headerPath = '$cppTarget/include/${path}.h';
-        if (!FileSystem.exists(headerPath)) {
+        if (!Globals.cur.fs.exists(headerPath)) {
           trace('The uexpose header at path $headerPath does not exist. Skipping');
           continue;
         }
-        var targetPath = GlueInfo.getPublicHeaderPath(TypeRef.parseClassName( cpath ), true);
+        var targetPath = GlueInfo.getSharedHeaderPath(TypeRef.parseClassName( cpath ), true);
         var stampPath = '$stampOutput/$cpath.h.stamp';
         this.producedFiles.push(targetPath);
         var shouldCopy = checkShouldGenerate(stampPath, targetPath, cl);
@@ -370,10 +470,10 @@ class NativeGlueCode
           var contents = File.getContent(headerPath);
           // take off the self-include
           contents = contents.replace('#include <$path.h>', '');
-          if (!FileSystem.exists(targetPath) || File.getContent(targetPath) != contents) {
-            File.saveContent(targetPath, contents);
+          if (!Globals.cur.fs.exists(targetPath) || File.getContent(targetPath) != contents) {
+            Globals.cur.fs.saveContent(targetPath, contents);
           }
-          File.saveContent(stampPath, '');
+          Globals.cur.fs.saveContent(stampPath, '');
         }
       }
 
@@ -390,15 +490,15 @@ class NativeGlueCode
     }
 
     // add all extra modules which we depend on
-    if (!FileSystem.exists('$staticBaseDir/Data')) {
-      FileSystem.createDirectory('$staticBaseDir/Data');
+    if (!Globals.cur.fs.exists('$staticBaseDir/Data')) {
+      Globals.cur.fs.createDirectory('$staticBaseDir/Data');
     }
     var modules = [ for (module in modules.keys()) module ];
     modules.sort(Reflect.compare);
     var contents = modules.join('\n').trim();
     var targetModules = '$staticBaseDir/Data/modules.txt';
-    if (!FileSystem.exists(targetModules) || File.getContent(targetModules).trim() != contents) {
-      File.saveContent(targetModules, contents);
+    if (!Globals.cur.fs.exists(targetModules) || File.getContent(targetModules).trim() != contents) {
+      Globals.cur.fs.saveContent(targetModules, contents);
     }
 
     if (Context.defined("WITH_CPPIA")) {
@@ -406,9 +506,13 @@ class NativeGlueCode
       glueModules.sort(Reflect.compare);
       var contents = glueModules.join('\n');
       var file = '$staticBaseDir/Data/compiled.txt';
-      if (!FileSystem.exists(file) || sys.io.File.getContent(file) != contents) {
-        sys.io.File.saveContent(file, contents);
+      if (!Globals.cur.fs.exists(file) || sys.io.File.getContent(file) != contents) {
+        Globals.cur.fs.saveContent(file, contents);
       }
+    }
+
+    if (this.generateLoctext && this.loctexts.length > 0) {
+      this.generateLoctexts();
     }
 
     // clean generated folder
@@ -416,7 +520,7 @@ class NativeGlueCode
     glues.makeUnityBuild();
 
     var file = '$staticBaseDir/Data/staticProducedFiles.txt';
-    sys.io.File.saveContent(file, this.producedFiles.join('\n'));
+    Globals.cur.fs.saveContent(file, this.producedFiles.join('\n'));
   }
 
   public function onGenerate(types:Array<Type>) {
@@ -429,6 +533,15 @@ class NativeGlueCode
       case TInst(c,tl):
         var typeName = c.toString();
         var cl = c.get();
+        if (this.generateLoctext && cl.meta.has(':used_loctext')) {
+          for (meta in cl.meta.extract(':used_loctext')) {
+            switch(meta.params) {
+              case [{ expr:EConst(CString(text)) }, { expr:EConst(CString(ns)) }, { expr:EConst(CString(key)) }]:
+                this.loctexts.push({ text:text, ns:ns, key:key, pos:meta.pos });
+              case _:
+            }
+          }
+        }
         switch(cl.kind) {
         case KAbstractImpl(a):
           var a = a.get();
@@ -459,11 +572,8 @@ class NativeGlueCode
         }
         var hadGlue = glueTypes.exists(TypeRef.fromBaseType(cl, cl.pos).getClassPath());
         if (cl.meta.has(':uexpose')) {
-          if (!cl.meta.has(':ifFeature')) {
-            cl.meta.add(':keep', [], cl.pos);
-          }
-          cl.meta.add(':nativeGen', [], cl.pos);
           glueTypes[ TypeRef.fromBaseType(cl, cl.pos).getClassPath() ] = c;
+          prepareUExposeClass(cl);
         }
         if (cl.meta.has(':ueGluePath') && !hadGlue ) {
           glueTypes[ TypeRef.fromBaseType(cl, cl.pos).getClassPath() ] = c;
@@ -472,10 +582,12 @@ class NativeGlueCode
         // add only once - we'll select a type that is always compiled
         if (typeName == 'uhx.expose.HxcppRuntime' && !cl.meta.has(':buildXml')) {
           var dir = Globals.cur.unrealSourceDir;
+          var sharedDir = GlueInfo.getSharedHeaderDir(null);
           cl.meta.add(':buildXml', [macro $v{
           '
           <files id="haxe">
             <compilerflag value="-I$targetTemplate/Shared" />
+            <compilerflag value="-I$sharedDir" />
           </files>
           <files id="cppia">
             <compilerflag value="-I$targetTemplate/Shared" />
@@ -495,6 +607,38 @@ class NativeGlueCode
     if (hadErrors) {
       throw new Error('Build finished with errors', Context.currentPos());
     }
+  }
+
+  private function generateLoctexts() {
+    this.loctexts.sort(function(v1,v2) {
+      return switch [Reflect.compare(v1.ns, v2.ns), Reflect.compare(v1.key, v2.key)] {
+        case [0,k]: k;
+        case [k,_]: k;
+      }
+    });
+    var outPath = GlueInfo.getExportHeaderPath('uhx_loctexts');
+    // change .h to .inl
+    outPath = outPath.substr(0,outPath.length-1) + 'inl';
+    var writer = new BaseWriter(outPath);
+    inline function escape(txt:String) {
+      return txt.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+    var last = null;
+    for (txt in loctexts) {
+      if (last != null && last.key == txt.key && last.ns == txt.ns) {
+        if (last.text != txt.text) {
+          Context.warning('Different text for same LOCTEXT was detected. NS=${last.ns} KEY=${last.key}', last.pos);
+          Context.warning('Also defined here', txt.pos);
+        }
+        last = txt;
+        continue;
+      }
+      writer.buf.add('NSLOCTEXT("${escape(txt.ns)}", "${escape(txt.key)}", "${escape(txt.text)}");\n');
+      last = txt;
+    }
+
+    glues.touch(TExportHeader, 'uhx_loctexts');
+    writer.close(null);
   }
 }
 

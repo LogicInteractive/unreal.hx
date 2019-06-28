@@ -3,7 +3,6 @@ package uhx.compiletime;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
-import sys.FileSystem;
 import uhx.compiletime.tools.*;
 import uhx.compiletime.types.*;
 import uhx.meta.MetaDef;
@@ -71,7 +70,6 @@ class UEnumBuild
           return uhx.internal.HaxeHelpers.dynamicToPointer( $i{arrCreateName}.arr );
         }
       };
-      expose.meta.push({ name:':uexpose', pos:enumType.pos });
       var ifFeature:MetadataEntry = { name:':ifFeature', params:[macro $v{typeRef.getClassPath(true) + '.*'}], pos:enumType.pos };
       expose.meta.push(ifFeature);
       createArr.meta.push(ifFeature);
@@ -80,7 +78,11 @@ class UEnumBuild
       expose.pack = ['uhx','enums'];
       Globals.cur.hasUnprocessedTypes = true;
       Context.defineType(createArr);
+      Context.getType('uhx.enums.$arrCreateName');
+      expose.meta.push({ name:':uexpose', pos:enumType.pos });
+      expose.meta.push({ name:':skipUExternCheck', pos:enumType.pos });
       Context.defineType(expose);
+      Context.getType('uhx.enums.${uname}_GetArray');
 
       var writer = new HeaderWriter(headerPath);
       writer.include('uhx/EnumGlue.h');

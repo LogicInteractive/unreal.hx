@@ -20,8 +20,13 @@ using StringTools;
 #end
 
 // this code is needed on windows since we're compiling with -MT instead of -MD
-@:cppFileCode("#ifndef environ\n#ifdef HX_WINDOWS\nextern char **environ = NULL;\n#endif\n#endif\n")
-@:buildXml("<compilerflag value=\"/bigobj\" if=\"windows\" /><compilerflag value=\"${UHX_EXTRA_COMPILERFLAGS}\" /> <files id=\"cppia\"><compilerflag value=\"${UHX_EXTRA_COMPILERFLAGS}\" /> <compilerflag value=\"/bigobj\" if=\"windows\" /> </files>")
+@:buildXml("<compilerflag value=\"/bigobj\" if=\"windows\" />
+<compilerflag value=\"${UHX_EXTRA_COMPILERFLAGS}\" />
+<files id=\"cppia\">
+  <compilerflag value=\"${UHX_EXTRA_COMPILERFLAGS}\" />
+  <compilerflag value=\"/bigobj\" if=\"windows\" />
+  <compilerflag value=\"-DHXCPP_CPPIA_OLD_CLASS_LINK\" if=\"WITH_LIVE_RELOAD\" />
+</files>")
 @:access(unreal.CoreAPI)
 class UnrealInit
 {
@@ -348,6 +353,10 @@ class UnrealInit
 
 #if WITH_CPPIA
     var dirWatchHandle = FTickerDelegate.create();
+#if WITH_LIVE_RELOAD
+    var lastLiveStamp = Date.now().getTime();
+    var liveTarget = '$gameDir/Binaries/Haxe/live.cppia';
+#end
     dirWatchHandle.BindLambda(function(deltaTime) {
       if (FileSystem.exists(target) && FileSystem.stat(target).mtime.getTime() > stamp) {
         if (waitingRebind) {
@@ -361,6 +370,40 @@ class UnrealInit
           loadCppia();
         }
       }
+#if WITH_LIVE_RELOAD
+      var latestStamp = 0.0;
+      if (FileSystem.exists(liveTarget) && (latestStamp = FileSystem.stat(liveTarget).mtime.getTime()) > lastLiveStamp)
+      {
+        try {
+          var oldData = uhx.ue.RuntimeLibraryDynamic.getAndFlushPrintf();
+          if (oldData.length > 0) {
+            oldData = oldData.split('\n').filter(function(v) return v.indexOf('Get static field not found') < 0 && v.trim() != '').join('\n');
+          }
+          if (oldData.length > 0) {
+            trace('printf buffer: $oldData');
+          }
+          trace('loading live functions');
+
+          var contents = sys.io.File.getContent(liveTarget);
+          untyped __global__.__scriptable_load_cppia(contents);
+          var errorContents = uhx.ue.RuntimeLibraryDynamic.getAndFlushPrintf();
+          if (errorContents.length > 0) {
+            trace('Warning', 'Warnings while loading cppia:\n$errorContents');
+          }
+
+          var cls:Dynamic = Type.resolveClass('uhx.LiveReloadLive');
+          if (cls != null) {
+            trace('Setting cppia live reload types');
+            cls.bindFunctions();
+          }
+        }
+        catch(e:Dynamic)
+        {
+          trace('Error', 'Error while loading live reload types: $e');
+        }
+        lastLiveStamp = latestStamp;
+      }
+#end
 
       return true;
     });

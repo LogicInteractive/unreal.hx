@@ -205,7 +205,7 @@ class UExtensionBuild {
         default:
         }
 
-        if (Globals.shouldExposeFunction(field, isDynamicClass, isOverride ? nativeMethods[field.name] : null)) {
+        if (Globals.shouldExposeFunction(field, isDynamicClass, isOverride ? nativeMethods[field.name].meta : null)) {
           toExpose[field.name] = getMethodDef(field, isOverride ? nativeMethods[field.name] : null, isOverride && !field.meta.has('uhx_OverridesNative') ? Override : Member);
           // if (isOverride) {
           //   var sig = UhxMeta.getStaticMetas(field.meta.get()) + field.name;
@@ -662,37 +662,13 @@ class UExtensionBuild {
           }
           var newExpr = null;
           if (isVoid) {
-            newExpr = macro {
-              uhx.HaxeCodeDispatcher.ensureMainThread();
-              if (uhx.HaxeCodeDispatcher.shouldWrap()) {
-                try {
-                  $oldExpr;
-                  uhx.HaxeCodeDispatcher.endWrap();
-                }
-                catch(e:Dynamic) {
-                  uhx.HaxeCodeDispatcher.showError(e, haxe.CallStack.exceptionStack(), $v{nameVal});
-                }
-              } else {
-                $oldExpr;
-              }
-            }
+            newExpr = macro uhx.HaxeCodeDispatcher.runVoid(function() $oldExpr);
           } else {
-            newExpr = macro {
-              uhx.HaxeCodeDispatcher.ensureMainThread();
-              if (uhx.HaxeCodeDispatcher.shouldWrap()) {
-                try {
-                  var ret = $oldExpr;
-                  uhx.HaxeCodeDispatcher.endWrap();
-                  @:pos(field.pos) return ret;
-                }
-                catch(e:Dynamic) {
-                  uhx.HaxeCodeDispatcher.showError(e, haxe.CallStack.exceptionStack(), $v{nameVal});
-                }
-              } else {
-                return $oldExpr;
-              }
-              return $nullExpr;
-            }
+            newExpr = macro return uhx.HaxeCodeDispatcher.runWithValue(function() return $oldExpr);
+          }
+          if (field.meta == null)
+          {
+            field.meta = [];
           }
           fn.expr = newExpr;
         case _:
@@ -702,6 +678,7 @@ class UExtensionBuild {
       Globals.cur.gluesToGenerate = Globals.cur.gluesToGenerate.add(expose.getClassPath());
       Globals.cur.cachedBuiltTypes.push(expose.getClassPath());
       Globals.cur.hasUnprocessedTypes = true;
+      metas.push({ name:':skipUExternCheck', params:[], pos:clt.pos });
       Context.defineType({
         pack: expose.pack,
         name: expose.name,
@@ -851,14 +828,6 @@ class UExtensionBuild {
     headerDef << new Begin(' {');
       headerDef.addNewlines(ctorBody.toString());
     headerDef << new End('}') << new Newline();
-    if (!hasHaxeSuper) {
-      includes.add('uhx/ThreadAttach.h');
-      headerDef << 'void Serialize( FArchive& Ar ) override' << new Begin(' {')
-        << 'Super::Serialize(Ar);' << new Newline()
-        << 'uhx::ThreadAttach threadAttach(true);' << new Newline()
-        << 'if (!Ar.IsSaving() && this->haxeGcRef.get() == 0) this->haxeGcRef.set(this->createEmptyHaxeWrapper());'
-      << new End('}') << new Newline();
-    }
 
     if (Globals.isDynamicUType(clt) && (clt.superClass == null || !Globals.isDynamicUType(clt.superClass.t.get()))) {
       includes.add('UObject/Stack.h');
