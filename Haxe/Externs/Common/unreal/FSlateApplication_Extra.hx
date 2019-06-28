@@ -5,7 +5,6 @@ import unreal.slatecore.*;
 import unreal.slatecore.EFocusCause;
 
 extern class FSlateApplication_Extra {
-	
 	//public var LastComputedBounds		: FSlateRect;
 	public function AddWindow(InSlateWindow:TSharedRef<SWindow>, bShowImmediately:Const<Bool>):TSharedRef<SWindow>;
 	
@@ -14,10 +13,12 @@ extern class FSlateApplication_Extra {
 	
 	public function SetKeyboardFocus(OptionalWidgetToFocus:Const<PRef<TSharedPtr<SWidget>>>,ReasonFocusIsChanging:EFocusCause) : Bool;
 	
-	
+  //public function GetPressedMouseButtons():Const<PRef<TSet<FKey>>>;
+
+
   public static var CursorPointerIndex(default, never):Const<Int32>;
 
-  //public function GetPressedMouseButtons():Const<PRef<TSet<FKey>>>;
+  public function GetPressedMouseButtons():Const<PRef<TSet<FKey>>>;
 
   public function GetPlatformApplication():TSharedPtr<GenericApplication>;
 
