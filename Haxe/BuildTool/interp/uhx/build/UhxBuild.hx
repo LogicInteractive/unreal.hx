@@ -1533,7 +1533,10 @@ class UhxBuild extends UhxBaseBuild {
     consolidateNeededConfigs();
     this.stampOverride = getStampOverride();
 
-    this.ueExternDir = 'UE${this.version.MajorVersion}.${this.version.MinorVersion}.${this.version.PatchVersion}';
+	for (f in 0...this.modulePaths.length) 
+		this.modulePaths[f] = this.modulePaths[f].split('"').join('');
+		
+	this.ueExternDir = 'UE${this.version.MajorVersion}.${this.version.MinorVersion}.${this.version.PatchVersion}';
     if (!FileSystem.exists('${data.pluginDir}/Haxe/Externs/$ueExternDir')) {
       this.ueExternDir = 'UE${this.version.MajorVersion}.${this.version.MinorVersion}';
       if (!FileSystem.exists('${data.pluginDir}/Haxe/Externs/$ueExternDir')) {
