@@ -31,6 +31,17 @@ extern class FQuat_Extra {
   public function GetRightVector() : FVector;
 
   /** Get the up direction (Z axis) after it has been rotated by this Quaternion. */
-  @:thisConst
   public function GetUpVector() : FVector;
+  @:thisConst
+  
+  /** Get the FRotator representation of this Quaternion. */
+  @:thisConst
+  public function Rotator() : FRotator;
+  
+  /** Get the FRotator representation of this Quaternion. */
+  @:thisConst
+  public function Vector() : FVector;
 }
+
+
+

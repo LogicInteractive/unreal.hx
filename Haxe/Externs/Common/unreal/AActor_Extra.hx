@@ -1,4 +1,6 @@
 package unreal;
+import unreal.ETeleportType;
+import unreal.PRef;
 
 extern class AActor_Extra {	
 	
@@ -66,6 +68,30 @@ extern class AActor_Extra {
 
 	@:thisConst
 	public function GetActorLocation() : FVector;
+
+	/**
+	 *	Move the actor instantly to the specified location and rotation.
+	 *	Returns Whether the rotation was successfully set.
+	 */
+	@:overload(function(NewLocation:FVector,NewRotation:Const<PRef<FQuat>>,?bSweep:Bool=false,?OutSweepHitResult:PPtr<FHitResult>,?Teleport:ETeleportType=ETeleportType.None):Bool{})	
+	public function SetActorLocationAndRotation(NewLocation:FVector,NewRotation:FRotator,?bSweep:Bool=false,?OutSweepHitResult:PPtr<FHitResult>,?Teleport:ETeleportType=ETeleportType.None) : Bool;
+	
+/*bool SetActorLocationAndRotation
+(
+    FVector NewLocation,
+    FRotator NewRotation,
+    bool bSweep,
+    FHitResult * OutSweepHitResult,
+    ETeleportType Teleport
+	
+	
+	FVector NewLocation,
+    const FQuat & NewRotation,
+    bool bSweep,
+    FHitResult * OutSweepHitResult,
+    ETeleportType Teleport	
+)	
+*/	
 
 	public function SetActorLocation(vec:Const<PRef<FVector>>, bSweep:Bool, outSweepResult:PPtr<FHitResult>) : Bool;
 
