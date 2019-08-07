@@ -58,6 +58,8 @@ class MacroHelper {
               expr = macro Std.parseFloat($arg);
             case 'String':
               expr = macro $arg;
+            case 'Array':
+              expr = macro $arg;
             case _:
               expr = macro try haxe.Json.parse($arg) catch(e:Dynamic) { trace('Error while parsing "' + $v{field.name} + '" ' + $arg + ' : ' + e ); null; };
           }
